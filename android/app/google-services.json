@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "500086228953",
+    "project_id": "hireon-8e1c0",
+    "storage_bucket": "hireon-8e1c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:500086228953:android:7c637b33e0e91bb8f77bc8",
+        "android_client_info": {
+          "package_name": "com.hireon"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "500086228953-14aadju7slbtn4sd9uqh6r2kvb5d48i0.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.hireon",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "500086228953-8he1qejdf8h96g7n85b8ob10o499p8gi.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBN5TOGSzxF2xi1PTB9uhqGlkmNcuXQR0o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "500086228953-8he1qejdf8h96g7n85b8ob10o499p8gi.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

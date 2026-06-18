@@ -1,0 +1,15 @@
+const router = require('express').Router();
+const ctrl   = require('../controllers/orderController');
+const { protect, requireRole } = require('../middleware/auth');
+
+router.post('/estimate',         protect, ctrl.estimateFare);
+router.post('/',                 protect, requireRole('customer'), ctrl.createOrder);
+router.get('/',                  protect, ctrl.getOrders);
+router.get('/pending',           protect, requireRole('rider'),    ctrl.getPendingOrders);
+router.get('/:id',               protect, ctrl.getOrder);
+router.post('/:id/accept',       protect, requireRole('rider'),    ctrl.acceptOrder);
+router.post('/:id/pickup',       protect, requireRole('rider'),    ctrl.confirmPickup);
+router.post('/:id/deliver',      protect, requireRole('rider'),    ctrl.confirmDelivery);
+router.post('/:id/cancel',       protect, ctrl.cancelOrder);
+
+module.exports = router;
