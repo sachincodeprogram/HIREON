@@ -87,3 +87,9 @@ yarn-error.log
 /*.png
 /*.xml
 !app.json
+
+# Local Claude settings (personal, per-machine)
+.claude/settings.local.json
+
+# Stray runtime error/output logs
+*.err
