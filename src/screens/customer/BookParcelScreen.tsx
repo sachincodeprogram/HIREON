@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Switch, Alert,
-  KeyboardAvoidingView, Platform, TouchableOpacity,
+  KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { CustomerStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
+import { RADIUS, glow } from '../../constants/theme';
 import { ParcelSize, LocationInfo, ParcelInfo, Coordinates } from '../../types';
 import Input          from '../../components/common/Input';
 import Button         from '../../components/common/Button';
@@ -17,12 +18,31 @@ import AddressSearchInput from '../../components/common/AddressSearchInput';
 import { estimateFare }   from '../../services/orderService';
 
 const SIZES: { value: ParcelSize; label: string; desc: string; icon: string }[] = [
-  { value: 'small',  label: 'Small',  icon: '📄', desc: 'Documents, phone, small items (≤1 kg)' },
-  { value: 'medium', label: 'Medium', icon: '👟', desc: 'Shoes, books, medium items (1–5 kg)' },
-  { value: 'large',  label: 'Large',  icon: '📦', desc: 'Clothes, large boxes (5–20 kg)' },
+  { value: 'small',  label: 'Small',  icon: '📄', desc: 'Documents, phone (≤1 kg)' },
+  { value: 'medium', label: 'Medium', icon: '👟', desc: 'Shoes, books (1–5 kg)' },
+  { value: 'large',  label: 'Large',  icon: '📦', desc: 'Clothes, boxes (5–20 kg)' },
 ];
 
+const WEIGHT_PRESETS = [0.5, 1, 2, 5, 10];
+
 const DEFAULT_COORDS: Coordinates = { lat: 28.6139, lng: 77.2090 };
+
+// Premium section header: colored icon chip + title + Hinglish hint.
+const SectionHead: React.FC<{ icon: string; color: string; title: string; sub: string; step: number }> =
+  ({ icon, color, title, sub, step }) => (
+  <View style={styles.sectionHead}>
+    <View style={[styles.sectionChip, { backgroundColor: color + '1A', borderColor: color + '33' }]}>
+      <Text style={styles.sectionChipIcon}>{icon}</Text>
+    </View>
+    <View style={{ flex: 1 }}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <Text style={styles.sectionSub}>{sub}</Text>
+    </View>
+    <View style={[styles.stepBadge, { backgroundColor: color }]}>
+      <Text style={styles.stepBadgeText}>{step}</Text>
+    </View>
+  </View>
+);
 
 const BookParcelScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
@@ -100,10 +120,7 @@ const BookParcelScreen = () => {
 
           {/* Pickup */}
           <View style={styles.sectionBlock}>
-            <View style={styles.sectionHead}>
-              <View style={[styles.sectionDot, { backgroundColor: COLORS.success }]} />
-              <Text style={styles.sectionTitle}>Pickup Location</Text>
-            </View>
+            <SectionHead icon="📍" color={COLORS.success} title="Pickup Location" sub="Kahan se uthana hai" step={1} />
             <Card style={{ zIndex: 20, overflow: 'visible' }}>
               <AddressSearchInput
                 label="Address"
@@ -132,10 +149,7 @@ const BookParcelScreen = () => {
 
           {/* Delivery */}
           <View style={styles.sectionBlock}>
-            <View style={styles.sectionHead}>
-              <View style={[styles.sectionDot, { backgroundColor: COLORS.primary }]} />
-              <Text style={styles.sectionTitle}>Delivery Location</Text>
-            </View>
+            <SectionHead icon="🏁" color={COLORS.primary} title="Delivery Location" sub="Kahan pohonchana hai" step={2} />
             <Card style={{ zIndex: 10, overflow: 'visible' }}>
               <AddressSearchInput
                 label="Address"
@@ -163,10 +177,7 @@ const BookParcelScreen = () => {
 
           {/* Parcel Info */}
           <View style={styles.sectionBlock}>
-            <View style={styles.sectionHead}>
-              <View style={[styles.sectionDot, { backgroundColor: COLORS.warning }]} />
-              <Text style={styles.sectionTitle}>Parcel Details</Text>
-            </View>
+            <SectionHead icon="📦" color={COLORS.warning} title="Parcel Details" sub="Kya bhej rahe ho" step={3} />
             <Card>
               <Input
                 label="Description (optional)"
@@ -183,25 +194,56 @@ const BookParcelScreen = () => {
                 keyboardType="decimal-pad"
                 leftIcon="⚖️"
               />
+              <View style={styles.weightChips}>
+                {WEIGHT_PRESETS.map(v => {
+                  const active = parseFloat(weight) === v;
+                  return (
+                    <Pressable
+                      key={v}
+                      onPress={() => setWeight(String(v))}
+                      style={({ pressed }) => [
+                        styles.weightChip,
+                        active && styles.weightChipActive,
+                        pressed && { opacity: 0.85 },
+                      ]}>
+                      <Text style={[styles.weightChipText, active && styles.weightChipTextActive]}>
+                        {v} kg
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <Text style={styles.fieldLabel}>Parcel Size</Text>
               <View style={styles.sizeGrid}>
-                {SIZES.map(s => (
-                  <TouchableOpacity
-                    key={s.value}
-                    style={[styles.sizeCard, size === s.value && styles.sizeCardActive]}
-                    onPress={() => setSize(s.value)}
-                    activeOpacity={0.8}>
-                    <Text style={styles.sizeIcon}>{s.icon}</Text>
-                    <Text style={[styles.sizeLabel, size === s.value && styles.sizeLabelActive]}>
-                      {s.label}
-                    </Text>
-                    <Text style={styles.sizeDesc} numberOfLines={2}>{s.desc}</Text>
-                  </TouchableOpacity>
-                ))}
+                {SIZES.map(s => {
+                  const active = size === s.value;
+                  return (
+                    <Pressable
+                      key={s.value}
+                      style={({ pressed }) => [
+                        styles.sizeCard,
+                        active && styles.sizeCardActive,
+                        pressed && { transform: [{ scale: 0.97 }] },
+                      ]}
+                      onPress={() => setSize(s.value)}>
+                      {active && (
+                        <View style={styles.sizeCheck}>
+                          <Text style={styles.sizeCheckText}>✓</Text>
+                        </View>
+                      )}
+                      <Text style={styles.sizeIcon}>{s.icon}</Text>
+                      <Text style={[styles.sizeLabel, active && styles.sizeLabelActive]}>
+                        {s.label}
+                      </Text>
+                      <Text style={styles.sizeDesc} numberOfLines={2}>{s.desc}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
-              <View style={styles.switchRow}>
+              <View style={[styles.switchRow, isFragile && styles.switchRowActive]}>
+                <Text style={styles.switchIcon}>🛡️</Text>
                 <View style={styles.switchLeft}>
                   <Text style={styles.switchLabel}>Fragile Item</Text>
                   <Text style={styles.switchSub}>Extra care handling (+₹20)</Text>
@@ -221,6 +263,7 @@ const BookParcelScreen = () => {
             onPress={handleEstimate}
             loading={loading}
             icon="→"
+            size="lg"
             style={styles.btn}
           />
           <View style={{ height: 12 }} />
@@ -236,37 +279,68 @@ const styles = StyleSheet.create({
   content:   { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
 
   sectionBlock: { marginBottom: 4 },
-  sectionHead:  { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 14 },
-  sectionDot:   { width: 10, height: 10, borderRadius: 5 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+  sectionHead:  { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 12, marginTop: 18 },
+  sectionChip: {
+    width: 40, height: 40, borderRadius: 12, borderWidth: 1,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sectionChipIcon: { fontSize: 20 },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, letterSpacing: -0.2 },
+  sectionSub:   { fontSize: 12, color: COLORS.textMuted, marginTop: 1 },
+  stepBadge: {
+    width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center',
+  },
+  stepBadgeText: { fontSize: 11, fontWeight: '900', color: '#fff' },
 
   fieldLabel: {
-    fontSize: 13, fontWeight: '600', color: COLORS.text,
+    fontSize: 13, fontWeight: '700', color: COLORS.text,
     marginBottom: 12, marginTop: 4,
   },
 
-  sizeGrid: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  weightChips: { flexDirection: 'row', gap: 8, marginTop: -6, marginBottom: 16, flexWrap: 'wrap' },
+  weightChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: RADIUS.pill,
+    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface,
+  },
+  weightChipActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryBg },
+  weightChipText:   { fontSize: 13, fontWeight: '700', color: COLORS.textMuted },
+  weightChipTextActive: { color: COLORS.primary },
+
+  sizeGrid: { flexDirection: 'row', gap: 10, marginBottom: 18 },
   sizeCard: {
-    flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: COLORS.border,
-    padding: 12, alignItems: 'center', backgroundColor: COLORS.surface2,
+    flex: 1, borderRadius: RADIUS.lg, borderWidth: 1.5, borderColor: COLORS.border,
+    paddingVertical: 16, paddingHorizontal: 8, alignItems: 'center', backgroundColor: COLORS.surface,
+    position: 'relative',
   },
   sizeCardActive: {
     borderColor: COLORS.primary, backgroundColor: COLORS.primaryBg,
+    ...glow(COLORS.primary, 0.18),
   },
-  sizeIcon:       { fontSize: 22, marginBottom: 4 },
-  sizeLabel:      { fontSize: 12, fontWeight: '700', color: COLORS.text, marginBottom: 4 },
+  sizeCheck: {
+    position: 'absolute', top: 8, right: 8,
+    width: 18, height: 18, borderRadius: 9, backgroundColor: COLORS.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sizeCheckText:  { fontSize: 11, fontWeight: '900', color: '#fff' },
+  sizeIcon:       { fontSize: 26, marginBottom: 6 },
+  sizeLabel:      { fontSize: 13, fontWeight: '800', color: COLORS.text, marginBottom: 4 },
   sizeLabelActive:{ color: COLORS.primary },
   sizeDesc:       { fontSize: 10, color: COLORS.textMuted, textAlign: 'center', lineHeight: 13 },
 
   switchRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingTop: 14, borderTopWidth: 1, borderTopColor: COLORS.border,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingTop: 16, marginTop: 4, borderTopWidth: 1, borderTopColor: COLORS.border,
   },
+  switchRowActive: {
+    borderTopColor: 'transparent', backgroundColor: COLORS.primaryBg,
+    borderRadius: RADIUS.md, paddingHorizontal: 12, paddingBottom: 12, marginHorizontal: -4,
+  },
+  switchIcon: { fontSize: 22 },
   switchLeft: { flex: 1 },
   switchLabel:{ fontSize: 14, fontWeight: '700', color: COLORS.text },
   switchSub:  { fontSize: 11, color: COLORS.textMuted, marginTop: 2 },
 
-  btn: { marginTop: 8 },
+  btn: { marginTop: 10 },
 });
 
 export default BookParcelScreen;
