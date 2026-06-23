@@ -52,9 +52,9 @@ const getEarnings = async (req, res) => {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [todayOrders, weekOrders, monthOrders] = await Promise.all([
-      Order.find({ rider: req.user._id, status: 'delivered', updatedAt: { $gte: todayStart } }),
-      Order.find({ rider: req.user._id, status: 'delivered', updatedAt: { $gte: weekStart } }),
-      Order.find({ rider: req.user._id, status: 'delivered', updatedAt: { $gte: monthStart } }),
+      Order.find({ rider: req.user._id, status: 'delivered', deliveredAt: { $gte: todayStart } }),
+      Order.find({ rider: req.user._id, status: 'delivered', deliveredAt: { $gte: weekStart } }),
+      Order.find({ rider: req.user._id, status: 'delivered', deliveredAt: { $gte: monthStart } }),
     ]);
 
     const sum = arr => arr.reduce((s, o) => s + (o.riderEarning || 0), 0);

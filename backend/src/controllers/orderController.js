@@ -162,6 +162,7 @@ const confirmDelivery = async (req, res) => {
     if (order.deliveryOtp !== otp) return res.status(400).json(error('Invalid OTP'));
 
     order.status = 'delivered';
+    order.deliveredAt = new Date();
     order.fare.final = order.fare.estimated;
     order.timeline.push({ status: 'delivered', note: 'Parcel delivered successfully' });
     await order.save();

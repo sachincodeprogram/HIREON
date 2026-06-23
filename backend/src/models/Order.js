@@ -55,6 +55,7 @@ const orderSchema = new mongoose.Schema({
   cancelledBy:     { type: String, enum: ['customer', 'rider', 'admin', ''], default: '' },
   cancellationNote: { type: String, default: '' },
   riderEarning:    { type: Number, default: 0 },
+  deliveredAt:     { type: Date },
 }, { timestamps: true });
 
 orderSchema.pre('save', function () {

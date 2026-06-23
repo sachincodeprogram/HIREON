@@ -3,9 +3,16 @@ const { getAuth } = require('firebase-admin/auth');
 
 // Sirf ek baar initialize karo
 if (getApps().length === 0) {
-  const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
-    ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-    : null;
+  let serviceAccount = null;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    try {
+      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    } catch (e) {
+      // Aksar Render dashboard me paste karte waqt single-line JSON toot jaata hai.
+      console.error('[Firebase] FIREBASE_SERVICE_ACCOUNT valid JSON nahi hai — poora content EK hi line me paste karo (koi line break nahi).');
+      throw new Error(`Invalid FIREBASE_SERVICE_ACCOUNT JSON: ${e.message}`);
+    }
+  }
 
   if (serviceAccount) {
     initializeApp({ credential: cert(serviceAccount) });

@@ -1,3 +1,8 @@
 node_modules/
 .env
 *.log
+
+# Firebase service account private key — NEVER commit
+serviceAccount.json
+serviceAccount.json.json
+firebase-service-account.oneline.txt
