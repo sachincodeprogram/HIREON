@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Alert,
-  KeyboardAvoidingView, Platform, StatusBar,
+  KeyboardAvoidingView, Platform, StatusBar, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,9 +19,15 @@ type Props = {
 const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
   const { phone } = route.params;
   const [name, setName] = useState('');
+  const nameRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (__DEV__) setName('Test User');
+    // Android release me `autoFocus` reliably kaam nahi karta (keyboard nahi
+    // aata, input stuck ho jaata). Mount ke baad delay se focus karo —
+    // LoginScreen wala same proven pattern.
+    const t = setTimeout(() => nameRef.current?.focus(), 150);
+    return () => clearTimeout(t);
   }, []);
 
   const handleNext = () => {
@@ -70,10 +76,10 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <Text style={styles.inputSectionTitle}>Your Name</Text>
           <Input
+            ref={nameRef}
             value={name}
             onChangeText={setName}
             placeholder="Enter your full name"
-            autoFocus
             leftIcon="👤"
           />
 

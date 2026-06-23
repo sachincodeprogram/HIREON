@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef } from 'react';
 import { View, TextInput, Text, StyleSheet, KeyboardTypeOptions, ViewStyle } from 'react-native';
 import { COLORS } from '../../constants/api';
 import { RADIUS } from '../../constants/theme';
@@ -18,10 +18,10 @@ interface Props {
   leftIcon?: string;
 }
 
-const Input: React.FC<Props> = ({
+const Input = forwardRef<TextInput, Props>(({
   label, value, onChangeText, placeholder, keyboardType, secureTextEntry,
   multiline, numberOfLines, style, editable = true, autoFocus, leftIcon,
-}) => {
+}, ref) => {
   const [focused, setFocused] = useState(false);
 
   return (
@@ -35,6 +35,7 @@ const Input: React.FC<Props> = ({
       ]}>
         {leftIcon ? <Text style={styles.leftIcon}>{leftIcon}</Text> : null}
         <TextInput
+          ref={ref}
           style={[styles.input, multiline && styles.multiline, !editable && styles.disabled]}
           value={value}
           onChangeText={onChangeText}
@@ -52,7 +53,9 @@ const Input: React.FC<Props> = ({
       </View>
     </View>
   );
-};
+});
+
+Input.displayName = 'Input';
 
 const styles = StyleSheet.create({
   container: { marginBottom: 16 },
