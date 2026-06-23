@@ -23,12 +23,15 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
 
   useEffect(() => {
     if (__DEV__) setName('Test User');
-    // Android release me `autoFocus` reliably kaam nahi karta (keyboard nahi
-    // aata, input stuck ho jaata). Mount ke baad delay se focus karo —
-    // LoginScreen wala same proven pattern.
-    const t = setTimeout(() => nameRef.current?.focus(), 150);
-    return () => clearTimeout(t);
-  }, []);
+    // Signup screen slide-transition ke saath khulta hai; agar transition ke
+    // beech focus karein to Android release me keyboard nahi rukta. Isliye
+    // transition poora hone par focus karo. Fallback timeout bhi rakha hai
+    // agar event miss ho jaaye (fast transition ya already-settled case).
+    const focusName = () => nameRef.current?.focus();
+    const unsub = navigation.addListener('transitionEnd', focusName);
+    const t = setTimeout(focusName, 450);
+    return () => { unsub(); clearTimeout(t); };
+  }, [navigation]);
 
   const handleNext = () => {
     if (!name.trim()) {
