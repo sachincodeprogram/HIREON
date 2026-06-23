@@ -40,9 +40,9 @@ const dev: AppEnv = {
 
 const prod: AppEnv = {
   name: 'production',
-  // TODO(prod): replace with your real deployed backend (HTTPS required).
-  API_BASE_URL: 'https://your-production-api.com/api/v1',
-  SOCKET_URL:   'https://your-production-api.com',
+  // Live backend on Render (HTTPS).
+  API_BASE_URL: 'https://hireon-2b4t.onrender.com/api/v1',
+  SOCKET_URL:   'https://hireon-2b4t.onrender.com',
   // TODO(prod): use a release-restricted Maps key (package name + SHA-1).
   GOOGLE_MAPS_API_KEY: 'AIzaSyCeRdrgB7MsW-YWmkcY-ATGol9_xCJ9goM',
   // TODO(prod): the public OSRM demo server has no SLA/rate guarantee —
