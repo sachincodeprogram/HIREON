@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Alert,
-  KeyboardAvoidingView, Platform, StatusBar, TextInput,
+  KeyboardAvoidingView, Platform, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,19 +19,15 @@ type Props = {
 const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
   const { phone } = route.params;
   const [name, setName] = useState('');
-  const nameRef = useRef<TextInput>(null);
 
   useEffect(() => {
     if (__DEV__) setName('Test User');
-    // Signup screen slide-transition ke saath khulta hai; agar transition ke
-    // beech focus karein to Android release me keyboard nahi rukta. Isliye
-    // transition poora hone par focus karo. Fallback timeout bhi rakha hai
-    // agar event miss ho jaaye (fast transition ya already-settled case).
-    const focusName = () => nameRef.current?.focus();
-    const unsub = navigation.addListener('transitionEnd', focusName);
-    const t = setTimeout(focusName, 450);
-    return () => { unsub(); clearTimeout(t); };
-  }, [navigation]);
+    // NOTE: yahan jaan-bujhke auto-focus NAHI karte. Android release me screen
+    // navigate hone ke baad programmatic focus() field ko "focused" to kar deta
+    // hai par soft keyboard nahi dikhata — phir user ke tap pe focus change na
+    // hone ki wajah se keyboard kabhi nahi khulta. Field ko un-focused rakho;
+    // user ka pehla tap reliably keyboard khol dega.
+  }, []);
 
   const handleNext = () => {
     if (!name.trim()) {
@@ -79,7 +75,6 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <Text style={styles.inputSectionTitle}>Your Name</Text>
           <Input
-            ref={nameRef}
             value={name}
             onChangeText={setName}
             placeholder="Enter your full name"
