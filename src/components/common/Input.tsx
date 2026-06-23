@@ -1,5 +1,5 @@
-import React, { useState, forwardRef } from 'react';
-import { View, TextInput, Text, StyleSheet, KeyboardTypeOptions, ViewStyle } from 'react-native';
+import React, { useState, forwardRef, useRef, useImperativeHandle } from 'react';
+import { View, TextInput, Text, StyleSheet, Pressable, KeyboardTypeOptions, ViewStyle } from 'react-native';
 import { COLORS } from '../../constants/api';
 import { RADIUS } from '../../constants/theme';
 
@@ -23,19 +23,28 @@ const Input = forwardRef<TextInput, Props>(({
   multiline, numberOfLines, style, editable = true, autoFocus, leftIcon,
 }, ref) => {
   const [focused, setFocused] = useState(false);
+  // Internal ref so the wrapper Pressable can focus the field on tap.
+  const innerRef = useRef<TextInput>(null);
+  useImperativeHandle(ref, () => innerRef.current as TextInput);
 
   return (
     <View style={[styles.container, style]}>
       {label && <Text style={styles.label}>{label}</Text>}
-      <View style={[
-        styles.inputWrap,
-        focused && styles.inputWrapFocused,
-        !editable && styles.inputWrapDisabled,
-        multiline && styles.inputWrapMulti,
-      ]}>
+      {/* Pressable wrapper: tapping anywhere (icon/padding) focuses the input.
+          Android release me wrapped TextInput kabhi-kabhi tap se focus nahi
+          leta — programmatic focus() reliably kaam karta hai, isliye onPress
+          se hi focus karte hain. */}
+      <Pressable
+        onPress={() => innerRef.current?.focus()}
+        style={[
+          styles.inputWrap,
+          focused && styles.inputWrapFocused,
+          !editable && styles.inputWrapDisabled,
+          multiline && styles.inputWrapMulti,
+        ]}>
         {leftIcon ? <Text style={styles.leftIcon}>{leftIcon}</Text> : null}
         <TextInput
-          ref={ref}
+          ref={innerRef}
           style={[styles.input, multiline && styles.multiline, !editable && styles.disabled]}
           value={value}
           onChangeText={onChangeText}
@@ -50,7 +59,7 @@ const Input = forwardRef<TextInput, Props>(({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
-      </View>
+      </Pressable>
     </View>
   );
 });
