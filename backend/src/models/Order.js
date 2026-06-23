@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const { nanoid } = require('nanoid') || (() => ({ nanoid: () => Math.random().toString(36).slice(2, 10).toUpperCase() }))();
 
 const coordinatesSchema = new mongoose.Schema({
   lat: { type: Number, required: true },
