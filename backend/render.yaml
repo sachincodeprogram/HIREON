@@ -1,0 +1,26 @@
+# Render deploy blueprint for the HIREON backend.
+# Render dashboard → New → Blueprint → connect this repo. Root is the backend/ folder.
+# Secrets (sync: false) ko Render dashboard me manually bharna hai — repo me kabhi commit mat karna.
+services:
+  - type: web
+    name: hireon-backend
+    runtime: node
+    rootDir: backend
+    plan: free                 # free tier 15 min idle ke baad sleep hota hai (cold start ~50s).
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production       # CRITICAL: iske bina dev:<phone> bypass se koi bhi impersonate kar sakta hai
+      - key: MONGODB_URI
+        sync: false             # MongoDB Atlas connection string
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false             # Firebase service-account JSON (poori cheez, single line)
+      - key: FIREBASE_PROJECT_ID
+        sync: false             # e.g. hireon-8e1c0
+      - key: ADMIN_API_KEY
+        sync: false             # admin routes ke liye koi strong random string
+      - key: ALLOWED_ORIGINS
+        sync: false             # web client origins (RN app ko iski zaroorat nahi)
