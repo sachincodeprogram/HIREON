@@ -2,7 +2,10 @@ import axios from 'axios';
 import auth  from '@react-native-firebase/auth';
 import { BASE_URL } from '../constants/api';
 
-const apiClient = axios.create({ baseURL: BASE_URL, timeout: 15000 });
+// 60s timeout: Render free tier 15 min idle ke baad sleep ho jaata hai aur
+// pehli request ~50s (cold start) leti hai. 15s pe timeout hone se existing
+// user galti se Signup pe chala jaata tha / registration fail ho jaata tha.
+const apiClient = axios.create({ baseURL: BASE_URL, timeout: 60000 });
 
 // Dev mode mein phone number store karo (Firebase bypass ke liye)
 let _devPhone: string | null = null;
