@@ -20,6 +20,36 @@ type Route = RouteProp<CustomerStackParamList, 'LiveTracking'>;
 // Rider dhoondhne ka total window: 1km + 3km + 5km, har tier 1:30 min = 4:30 total.
 const SEARCH_TOTAL_MS = 270000;
 
+// Live rider marker with a pulsing "ping" ring — professional tracking feel.
+const LiveRiderMarker = () => {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(pulse, { toValue: 1, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  const scale   = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 2.8] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0] });
+  return (
+    <View style={styles.riderMarkerWrap}>
+      <Animated.View style={[styles.riderPulse, { transform: [{ scale }], opacity }]} />
+      <View style={styles.riderMarker}><Text style={{ fontSize: 18 }}>🏍️</Text></View>
+    </View>
+  );
+};
+
+// Branded circular pin (pickup/delivery) with a pointer tail — cleaner than default pins.
+const PlacePin = ({ color, icon }: { color: string; icon: string }) => (
+  <View style={styles.placePinWrap}>
+    <View style={[styles.placePin, { backgroundColor: color }]}>
+      <Text style={styles.placePinIcon}>{icon}</Text>
+    </View>
+    <View style={[styles.placePinTail, { borderTopColor: color }]} />
+  </View>
+);
+
 const LiveTrackingScreen = () => {
   const route      = useRoute<Route>();
   const navigation = useNavigation();
@@ -114,7 +144,7 @@ const LiveTrackingScreen = () => {
         setRouteDistance(r.distance / 1000); // metres → km
         setRouteDuration(r.duration / 60);    // seconds → min
         mapRef.current?.fitToCoordinates(r.coords, {
-          edgePadding: { top: 80, right: 50, bottom: 50, left: 50 },
+          edgePadding: { top: 110, right: 50, bottom: 340, left: 50 },
           animated: true,
         });
       } else {
@@ -124,7 +154,7 @@ const LiveTrackingScreen = () => {
         ];
         setRouteCoords(straight);
         mapRef.current?.fitToCoordinates(straight, {
-          edgePadding: { top: 80, right: 50, bottom: 50, left: 50 },
+          edgePadding: { top: 110, right: 50, bottom: 340, left: 50 },
           animated: true,
         });
       }
@@ -194,6 +224,23 @@ const LiveTrackingScreen = () => {
     ]);
   };
 
+  // Recenter / fit the map back onto the live route (or the pickup→delivery span).
+  const recenter = () => {
+    const pts = routeCoords.length > 0
+      ? routeCoords
+      : ([
+          pickupCoords   ? { latitude: pickupCoords.lat,   longitude: pickupCoords.lng }   : null,
+          deliveryCoords ? { latitude: deliveryCoords.lat, longitude: deliveryCoords.lng } : null,
+          riderPos       ? { latitude: riderPos.lat,       longitude: riderPos.lng }       : null,
+        ].filter(Boolean) as { latitude: number; longitude: number }[]);
+    if (pts.length > 0) {
+      mapRef.current?.fitToCoordinates(pts, {
+        edgePadding: { top: 110, right: 60, bottom: 340, left: 60 },
+        animated: true,
+      });
+    }
+  };
+
   const pickupCoords   = order?.pickup.coordinates;
   const deliveryCoords = order?.delivery.coordinates;
 
@@ -236,28 +283,27 @@ const LiveTrackingScreen = () => {
         initialRegion={initialRegion}
         showsUserLocation>
 
-        {/* Live road route from rider → pickup / delivery (blue Polyline) */}
+        {/* Live road route rider → pickup / delivery — white casing + blue line (nav style) */}
         {routeCoords.length > 0 && (
-          <Polyline
-            coordinates={routeCoords}
-            strokeColor="#1A73E8"
-            strokeWidth={5}
-            lineCap="round"
-            lineJoin="round"
-          />
+          <>
+            <Polyline coordinates={routeCoords} strokeColor="#FFFFFF" strokeWidth={9} lineCap="round" lineJoin="round" />
+            <Polyline coordinates={routeCoords} strokeColor="#1A73E8" strokeWidth={5} lineCap="round" lineJoin="round" />
+          </>
         )}
 
         {pickupLatLng && (
-          <Marker coordinate={pickupLatLng} title="Pickup" pinColor="green" />
+          <Marker coordinate={pickupLatLng} title="Pickup" anchor={{ x: 0.5, y: 1 }}>
+            <PlacePin color={COLORS.success} icon="📦" />
+          </Marker>
         )}
         {deliveryLatLng && (
-          <Marker coordinate={deliveryLatLng} title="Delivery" pinColor={COLORS.primary} />
+          <Marker coordinate={deliveryLatLng} title="Delivery" anchor={{ x: 0.5, y: 1 }}>
+            <PlacePin color={COLORS.primary} icon="🏁" />
+          </Marker>
         )}
         {hasRider && riderAnim.current && (
           <MarkerAnimated coordinate={riderAnim.current as any} anchor={{ x: 0.5, y: 0.5 }} title="Rider">
-            <View style={styles.riderMarker}>
-              <Text style={{ fontSize: 20 }}>🏍️</Text>
-            </View>
+            <LiveRiderMarker />
           </MarkerAnimated>
         )}
 
@@ -295,6 +341,11 @@ const LiveTrackingScreen = () => {
         onPress={() => navigation.goBack()}
         activeOpacity={0.85}>
         <Text style={styles.backBtnText}>‹</Text>
+      </TouchableOpacity>
+
+      {/* Recenter map on the live route */}
+      <TouchableOpacity style={styles.recenterBtn} onPress={recenter} activeOpacity={0.85}>
+        <Text style={styles.recenterIcon}>🎯</Text>
       </TouchableOpacity>
 
       {/* Bottom Sheet */}
@@ -449,12 +500,36 @@ const LiveTrackingScreen = () => {
 const styles = StyleSheet.create({
   container:   { flex: 1 },
   map:         { flex: 1 },
-  riderMarker: {
-    backgroundColor: '#fff', borderRadius: 20, padding: 6,
-    borderWidth: 2, borderColor: COLORS.primary,
-    elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2, shadowRadius: 4,
+
+  // Live rider marker + pulsing ping ring
+  riderMarkerWrap: { width: 64, height: 64, alignItems: 'center', justifyContent: 'center' },
+  riderPulse: {
+    position: 'absolute', width: 40, height: 40, borderRadius: 20,
+    backgroundColor: COLORS.primary,
   },
+  riderMarker: {
+    backgroundColor: '#fff', borderRadius: 22, padding: 7,
+    borderWidth: 2.5, borderColor: COLORS.primary,
+    elevation: 6, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 5,
+  },
+
+  // Branded pickup/delivery pins
+  placePinWrap: { alignItems: 'center' },
+  placePin: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2.5, borderColor: '#fff',
+    elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25, shadowRadius: 4,
+  },
+  placePinIcon: { fontSize: 16 },
+  placePinTail: {
+    width: 0, height: 0, marginTop: -2,
+    borderLeftWidth: 6, borderRightWidth: 6, borderTopWidth: 9,
+    borderLeftColor: 'transparent', borderRightColor: 'transparent',
+  },
+
   nearbyRider: {
     backgroundColor: '#fff', borderRadius: 16, padding: 4,
     borderWidth: 1.5, borderColor: COLORS.success,
@@ -525,9 +600,10 @@ const styles = StyleSheet.create({
   etaBanner: {
     position: 'absolute', top: 56, left: 68, right: 16,
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#fff', borderRadius: 14, paddingVertical: 10, paddingHorizontal: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15, shadowRadius: 6, elevation: 4,
+    backgroundColor: '#fff', borderRadius: 16, paddingVertical: 11, paddingHorizontal: 14,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18, shadowRadius: 10, elevation: 6,
+    borderWidth: 1, borderColor: COLORS.border,
   },
   etaIcon:  { fontSize: 22 },
   etaTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text },
@@ -541,6 +617,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15, shadowRadius: 6, elevation: 4,
   },
   backBtnText: { fontSize: 28, fontWeight: '300', color: COLORS.text, lineHeight: 30 },
+
+  recenterBtn: {
+    position: 'absolute', top: 120, right: 16,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18, shadowRadius: 6, elevation: 5,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  recenterIcon: { fontSize: 19 },
 
   bottomSheet: {
     backgroundColor: COLORS.surface,
