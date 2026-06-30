@@ -93,3 +93,6 @@ yarn-error.log
 
 # Stray runtime error/output logs
 *.err
+
+# Built APKs copied to repo root for sharing
+*.apk
