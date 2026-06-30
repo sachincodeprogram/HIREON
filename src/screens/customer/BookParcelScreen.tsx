@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Switch, Alert,
-  KeyboardAvoidingView, Platform, Pressable,
+  KeyboardAvoidingView, Platform, Pressable, PermissionsAndroid,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -16,6 +16,7 @@ import Card           from '../../components/common/Card';
 import ScreenHeader   from '../../components/navigation/ScreenHeader';
 import AddressSearchInput from '../../components/common/AddressSearchInput';
 import { estimateFare }   from '../../services/orderService';
+import { selectContactPhone } from 'react-native-select-contact';
 
 const SIZES: { value: ParcelSize; label: string; desc: string; icon: string }[] = [
   { value: 'small',  label: 'Small',  icon: '📄', desc: 'Documents, phone (≤1 kg)' },
@@ -71,6 +72,41 @@ const BookParcelScreen = () => {
   const handleDeliverySelect = (address: string, coords: Coordinates) => {
     setDeliveryAddress(address);
     setDeliveryCoords(coords);
+  };
+
+  // Phone contacts se number uthao (manual entry ka option waise hi rehta hai).
+  // selectedPhone.number set karo; agar naam khaali hai to contact ka naam bhi bhar do.
+  const pickContact = async (
+    setPhone: (v: string) => void,
+    nameValue: string,
+    setName: (v: string) => void,
+  ) => {
+    try {
+      // Android 6+ par contacts padhne ke liye runtime permission chahiye.
+      if (Platform.OS === 'android') {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
+          {
+            title: 'Contacts ka access',
+            message: 'Saved contacts se number chunne ke liye permission chahiye.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Cancel',
+          },
+        );
+        if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
+          Alert.alert('Permission', 'Contacts ka access nahi mila. Aap number manually daal sakte hain.');
+          return;
+        }
+      }
+      const selection = await selectContactPhone();
+      if (!selection) return; // user ne cancel kiya
+      const number = (selection.selectedPhone.number || '').replace(/[^0-9+]/g, '');
+      if (number) setPhone(number);
+      if (!nameValue.trim() && selection.contact.name) setName(selection.contact.name);
+    } catch (e: any) {
+      console.log('[CONTACT] picker error:', e?.message || String(e), JSON.stringify(e));
+      Alert.alert('Contacts', 'Contact nahi khul paya. Aap number manually bhi daal sakte hain.');
+    }
   };
 
   const handleEstimate = async () => {
@@ -143,6 +179,8 @@ const BookParcelScreen = () => {
                 placeholder="Sender's phone"
                 keyboardType="phone-pad"
                 leftIcon="📞"
+                rightIcon="👥"
+                onRightIconPress={() => pickContact(setPickupPhone, pickupContact, setPickupContact)}
               />
             </Card>
           </View>
@@ -171,6 +209,8 @@ const BookParcelScreen = () => {
                 placeholder="Receiver's phone"
                 keyboardType="phone-pad"
                 leftIcon="📞"
+                rightIcon="👥"
+                onRightIconPress={() => pickContact(setDeliveryPhone, deliveryContact, setDeliveryContact)}
               />
             </Card>
           </View>

@@ -16,11 +16,14 @@ interface Props {
   editable?: boolean;
   autoFocus?: boolean;
   leftIcon?: string;
+  rightIcon?: string;
+  onRightIconPress?: () => void;
 }
 
 const Input = forwardRef<TextInput, Props>(({
   label, value, onChangeText, placeholder, keyboardType, secureTextEntry,
   multiline, numberOfLines, style, editable = true, autoFocus, leftIcon,
+  rightIcon, onRightIconPress,
 }, ref) => {
   const [focused, setFocused] = useState(false);
   // Internal ref so the wrapper Pressable can focus the field on tap.
@@ -59,6 +62,14 @@ const Input = forwardRef<TextInput, Props>(({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
         />
+        {rightIcon && onRightIconPress ? (
+          <Pressable
+            onPress={onRightIconPress}
+            hitSlop={10}
+            style={({ pressed }) => [styles.rightBtn, pressed && styles.rightBtnPressed]}>
+            <Text style={styles.rightIcon}>{rightIcon}</Text>
+          </Pressable>
+        ) : null}
       </Pressable>
     </View>
   );
@@ -105,6 +116,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginRight: 8,
   },
+  rightBtn: {
+    marginLeft: 8,
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.primaryBg,
+  },
+  rightBtnPressed: { opacity: 0.6 },
+  rightIcon: { fontSize: 17 },
   input: {
     flex: 1,
     paddingVertical: 13,
