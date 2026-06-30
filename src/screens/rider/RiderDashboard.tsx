@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, Switch, Alert, ActivityIndicator,
-  StatusBar, Modal, Vibration, Animated,
+  StatusBar, Modal, Vibration, Animated, Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -15,35 +15,38 @@ import { ELEVATION, glow } from '../../constants/theme';
 import { fetchRoute } from '../../services/routeService';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import useAppSelector from '../../hooks/useAppSelector';
-import {
-  setOnlineStatus, setPendingRequests,
-  addPendingRequest, removePendingRequest,
-} from '../../store/slices/riderSlice';
+import { setOnlineStatus } from '../../store/slices/riderSlice';
 import { setActiveOrder } from '../../store/slices/orderSlice';
-import { getPendingOrders, acceptOrder } from '../../services/orderService';
+import { getMyOrders, acceptOrder } from '../../services/orderService';
 import { connectSocket, getSocket } from '../../services/socketService';
-import { requestLocationPermission, getDistanceKm } from '../../services/locationService';
+import { requestLocationPermission, getCurrentPosition } from '../../services/locationService';
 import { getSavedRingtoneId } from '../../services/ringtoneService';
 import { getRingtoneById, DEFAULT_RINGTONE_ID } from '../../constants/ringtones';
 import apiClient from '../../services/apiClient';
-import Button from '../../components/common/Button';
 import { Order, Coordinates } from '../../types';
 import { formatCurrency, formatDistance, truncateAddress } from '../../utils/formatters';
 import Sound from 'react-native-sound';
 
 Sound.setCategory('Playback');
 
+// Ek rider ko order accept karne ka window = ek tier (1:30 min). Iske baad popup khud band.
+const RING_WINDOW_MS = 90000;
+
 const RiderDashboard = () => {
   const dispatch   = useAppDispatch();
   const profile    = useAppSelector(s => s.auth.profile);
   const isOnline   = useAppSelector(s => s.rider.isOnline);
-  const requests   = useAppSelector(s => s.rider.pendingRequests);
   const navigation = useNavigation<NativeStackNavigationProp<RiderStackParamList>>();
 
   const [togglingOnline, setTogglingOnline] = useState(false);
   const [refreshing,     setRefreshing]     = useState(false);
   const [accepting,      setAccepting]      = useState<string | null>(null);
   const [riderPos,       setRiderPos]       = useState<Coordinates | null>(null);
+  // Rider ka chalu order (accepted/picked_up/in_transit) — home par pending list ki jagah yahi dikhta hai.
+  const [currentOrder,   setCurrentOrder]   = useState<Order | null>(null);
+  // Aaj ki snapshot (kamai/deliveries/rating) home par.
+  const [today,          setToday]          = useState<{ amount: number; count: number } | null>(null);
+  const [rating,         setRating]         = useState<number>(5);
 
   // New order ring modal
   const [ringOrder,      setRingOrder]      = useState<Order | null>(null);
@@ -54,6 +57,7 @@ const RiderDashboard = () => {
   const [ringParcelRoute, setRingParcelRoute] = useState<{ latitude: number; longitude: number }[]>([]);
 
   const ringAnim       = useRef(new Animated.Value(1)).current;
+  const ringProgress   = useRef(new Animated.Value(0)).current;
   const locationWatchId = useRef<number | null>(null);
   const ringSound       = useRef<Sound | null>(null);
   const ringLoaded      = useRef(false);
@@ -134,6 +138,22 @@ const RiderDashboard = () => {
     return () => pulse.stop();
   }, [ringOrder]);
 
+  // Accept window progress bar (ease-out: shuru fast, end slow). Bharne par popup khud band.
+  useEffect(() => {
+    if (!ringOrder) return;
+    ringProgress.setValue(0);
+    const anim = Animated.timing(ringProgress, {
+      toValue: 1,
+      duration: RING_WINDOW_MS,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: false,
+    });
+    anim.start(({ finished }) => {
+      if (finished) { stopRing(); setRingOrder(null); }
+    });
+    return () => anim.stop();
+  }, [ringOrder?._id]);
+
   // Fetch road routes for the ring-modal mini map via OSRM (Google Directions is
   // disabled on the key — see reference-google-maps-apis). Draws rider→pickup
   // (green) + pickup→delivery (red) as Polylines, with straight-line fallback,
@@ -174,8 +194,21 @@ const RiderDashboard = () => {
     }
     requestLocationPermission().then(status => {
       if (status !== 'granted') return;
+      // Turant ek fix backend ko bhejo taaki order aane se pehle hi server ko
+      // pata ho rider kahan hai (radius dispatch isi pe depend karta hai).
+      getCurrentPosition()
+        .then(c => {
+          setRiderPos(c);
+          apiClient.post('/rider/location', { lat: c.lat, lng: c.lng, heading: 0 }).catch(() => {});
+        })
+        .catch(() => {});
       locationWatchId.current = Geolocation.watchPosition(
-        pos => setRiderPos({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        pos => {
+          const { latitude: lat, longitude: lng, heading } = pos.coords;
+          setRiderPos({ lat, lng });
+          // Live location server ko bhejo — dispatch + tracking dono iske liye.
+          apiClient.post('/rider/location', { lat, lng, heading: heading || 0 }).catch(() => {});
+        },
         () => {},
         { enableHighAccuracy: true, distanceFilter: 30, interval: 6000, fastestInterval: 4000 },
       );
@@ -188,9 +221,19 @@ const RiderDashboard = () => {
     };
   }, [isOnline]);
 
-  const loadPending = useCallback(async () => {
+  const loadCurrent = useCallback(async () => {
     setRefreshing(true);
-    try { dispatch(setPendingRequests(await getPendingOrders())); } catch { /* silent */ }
+    try {
+      const orders = await getMyOrders();
+      const active = orders.find(o => ['accepted', 'picked_up', 'in_transit'].includes(o.status)) || null;
+      setCurrentOrder(active);
+    } catch { /* silent */ }
+    // Aaj ki kamai/deliveries/rating snapshot bhi le aao.
+    try {
+      const { data } = await apiClient.get('/rider/earnings');
+      setToday(data?.today || null);
+      if (typeof data?.rating === 'number') setRating(data.rating);
+    } catch { /* silent */ }
     finally { setRefreshing(false); }
   }, []);
 
@@ -199,8 +242,7 @@ const RiderDashboard = () => {
     connectSocket().then(socket => {
       socket.on('new_order_request', (order: Order) => {
         if (!mounted || !isOnline) return;
-        dispatch(addPendingRequest(order));
-        // Ring the rider!
+        // Naya order — sirf real-time ring popup (koi persistent pending list nahi).
         Vibration.vibrate([300, 200, 300, 200, 500]);
         playRing();
         setRingOrder(order);
@@ -214,15 +256,14 @@ const RiderDashboard = () => {
     };
   }, [isOnline]);
 
-  useEffect(() => { if (isOnline) loadPending(); }, [isOnline]);
+  // Chalu order load karo — mount par aur jab dashboard wapas focus me aaye (delivery se laut ke).
+  useFocusEffect(useCallback(() => { loadCurrent(); }, [loadCurrent]));
 
   const toggleOnline = async (value: boolean) => {
     try {
       setTogglingOnline(true);
       await apiClient.put('/rider/status', { isOnline: value });
       dispatch(setOnlineStatus(value));
-      if (value) loadPending();
-      else dispatch(setPendingRequests([]));
     } catch (e: any) {
       Alert.alert('Error', e.message);
     } finally {
@@ -236,11 +277,13 @@ const RiderDashboard = () => {
       setAccepting(order._id);
       const accepted = await acceptOrder(order._id);
       dispatch(setActiveOrder(accepted));
-      dispatch(removePendingRequest(order._id));
+      setCurrentOrder(accepted);
       setRingOrder(null);
       navigation.navigate('ActiveDelivery', { orderId: accepted._id });
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      // Order kisi aur rider ne le liya / cancel ho gaya — bata do.
+      Alert.alert('Order Gaya', e.message || 'Yeh order ab available nahi hai.');
+      setRingOrder(null);
     } finally {
       setAccepting(null);
     }
@@ -248,58 +291,46 @@ const RiderDashboard = () => {
 
   const handleDecline = (orderId: string) => {
     stopRing();
-    dispatch(removePendingRequest(orderId));
     if (ringOrder?._id === orderId) setRingOrder(null);
-  };
-
-  const distanceToPickup = (order: Order): string | null => {
-    if (!riderPos) return null;
-    const km = getDistanceKm(riderPos, order.pickup.coordinates);
-    return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
   };
 
   const firstName = profile?.name?.split(' ')[0] || 'Rider';
 
-  const renderRequest = ({ item }: { item: Order }) => {
-    const dist = distanceToPickup(item);
+  // Home page par dikhne wala chalu-order card (pending list ki jagah).
+  const renderCurrentOrder = () => {
+    if (!currentOrder) return null;
+    const statusLabel = currentOrder.status === 'accepted' ? 'Pickup pe jao'
+      : currentOrder.status === 'picked_up' ? 'Delivery pe jao' : 'Chalu hai';
     return (
-      <View style={styles.requestCard}>
-        <View style={styles.cardTop}>
-          <Text style={styles.orderId}># {item.orderId}</Text>
-          <View style={styles.earningPill}>
-            <Text style={styles.earningPillText}>+{formatCurrency(item.riderEarning || 0)}</Text>
+      <TouchableOpacity
+        style={styles.currentCard}
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate('ActiveDelivery', { orderId: currentOrder._id })}>
+        <View style={styles.currentTop}>
+          <View style={styles.currentBadge}>
+            <Text style={styles.currentBadgeText}>📦 Chalu Delivery</Text>
           </View>
+          <Text style={styles.currentStatus}>{statusLabel}</Text>
         </View>
-
+        <Text style={styles.currentOrderId}># {currentOrder.orderId}</Text>
         <View style={styles.routeBlock}>
           <View style={styles.routeRow}>
             <View style={[styles.routeDot, { backgroundColor: COLORS.success }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(item.pickup.address)}</Text>
+            <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(currentOrder.pickup.address)}</Text>
           </View>
           <View style={styles.routeConnector} />
           <View style={styles.routeRow}>
             <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
-            <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(item.delivery.address)}</Text>
+            <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(currentOrder.delivery.address)}</Text>
           </View>
         </View>
-
-        <View style={styles.cardMeta}>
-          <View style={styles.metaPill}>
-            <Text style={styles.metaPillText}>📦 {formatDistance(item.fare?.distance || 0)}</Text>
+        <View style={styles.currentBottom}>
+          <Text style={styles.earningPillText}>+{formatCurrency(currentOrder.riderEarning || 0)}</Text>
+          <View style={styles.resumeBtn}>
+            <Text style={styles.resumeBtnText}>Resume →</Text>
           </View>
-          {dist && (
-            <View style={[styles.metaPill, { backgroundColor: COLORS.warningBg }]}>
-              <Text style={[styles.metaPillText, { color: COLORS.warning }]}>📍 {dist} door</Text>
-            </View>
-          )}
-          <Text style={styles.customerFare}>{formatCurrency(item.fare?.estimated || 0)}</Text>
         </View>
-
-        <View style={styles.btnRow}>
-          <Button title="Accept" onPress={() => handleAccept(item)} loading={accepting === item._id} style={{ flex: 1 }} />
-          <Button title="Decline" onPress={() => handleDecline(item._id)} variant="ghost" style={{ flex: 1 }} />
-        </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
@@ -310,6 +341,8 @@ const RiderDashboard = () => {
     ? { latitude: ringOrder.delivery.coordinates.lat, longitude: ringOrder.delivery.coordinates.lng }
     : null;
   const riderLatLng = riderPos ? { latitude: riderPos.lat, longitude: riderPos.lng } : null;
+
+  const ringProgressWidth = ringProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -339,36 +372,42 @@ const RiderDashboard = () => {
         }
       </View>
 
-      {isOnline ? (
-        <FlatList
-          data={requests}
-          keyExtractor={o => o._id}
-          renderItem={renderRequest}
-          contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadPending} colors={[COLORS.secondary]} />}
-          ListHeaderComponent={
-            requests.length > 0 ? (
-              <View style={styles.listHeader}>
-                <Text style={styles.listHeaderText}>New Requests</Text>
-                <View style={styles.countPill}><Text style={styles.countText}>{requests.length}</Text></View>
-              </View>
-            ) : null
-          }
-          ListEmptyComponent={
-            <View style={styles.emptyWrap}>
-              <Text style={styles.emptyIcon}>🔍</Text>
-              <Text style={styles.emptyTitle}>Orders ka wait kar rahe hain…</Text>
-              <Text style={styles.emptySub}>New delivery request aate hi yahan dikhengi</Text>
+      <ScrollView
+        contentContainerStyle={styles.bodyScroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadCurrent} colors={[COLORS.secondary]} />}>
+        {/* Aaj ki snapshot */}
+        {isOnline && (
+          <View style={styles.statsRow}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{formatCurrency(today?.amount || 0)}</Text>
+              <Text style={styles.statLabel}>Aaj ki kamai</Text>
             </View>
-          }
-        />
-      ) : (
-        <View style={styles.offlineWrap}>
-          <View style={styles.offlineIconBox}><Text style={styles.offlineIcon}>😴</Text></View>
-          <Text style={styles.offlineTitle}>You're Offline</Text>
-          <Text style={styles.offlineSub}>Switch on karo aur delivery requests lena shuru karo</Text>
-        </View>
-      )}
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{today?.count || 0}</Text>
+              <Text style={styles.statLabel}>Aaj deliveries</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>⭐ {rating.toFixed(1)}</Text>
+              <Text style={styles.statLabel}>Rating</Text>
+            </View>
+          </View>
+        )}
+        {currentOrder ? (
+          renderCurrentOrder()
+        ) : isOnline ? (
+          <View style={styles.emptyWrap}>
+            <Text style={styles.emptyIcon}>🔍</Text>
+            <Text style={styles.emptyTitle}>Orders ka wait kar rahe hain…</Text>
+            <Text style={styles.emptySub}>Naya order aate hi screen par ring bajegi aur popup dikhega</Text>
+          </View>
+        ) : (
+          <View style={styles.offlineWrap}>
+            <View style={styles.offlineIconBox}><Text style={styles.offlineIcon}>😴</Text></View>
+            <Text style={styles.offlineTitle}>You're Offline</Text>
+            <Text style={styles.offlineSub}>Switch on karo aur delivery requests lena shuru karo</Text>
+          </View>
+        )}
+      </ScrollView>
 
       {/* ─── New Order Ring Modal ─── */}
       <Modal visible={!!ringOrder} transparent animationType="slide" onRequestClose={() => { stopRing(); setRingOrder(null); }}>
@@ -476,6 +515,16 @@ const RiderDashboard = () => {
               </View>
             )}
 
+            {/* Accept window timer bar (ease-out) — bharne par popup khud band */}
+            {ringOrder && (
+              <View style={styles.ringTimerWrap}>
+                <View style={styles.ringTimerTrack}>
+                  <Animated.View style={[styles.ringTimerFill, { width: ringProgressWidth }]} />
+                </View>
+                <Text style={styles.ringTimerText}>Jaldi karo — yeh order aas-paas ke aur riders ko bhi ja raha hai</Text>
+              </View>
+            )}
+
             {/* Action Buttons */}
             {ringOrder && (
               <View style={styles.modalBtnRow}>
@@ -534,6 +583,35 @@ const styles = StyleSheet.create({
   onlineSub:   { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
 
   list:    { paddingHorizontal: 16, paddingBottom: 32 },
+
+  bodyScroll: { flexGrow: 1, paddingHorizontal: 16, paddingBottom: 32 },
+
+  // Aaj ki snapshot
+  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  statBox: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 8,
+    alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
+  },
+  statValue: { fontSize: 18, fontWeight: '900', color: COLORS.text },
+  statLabel: { fontSize: 11, fontWeight: '600', color: COLORS.textMuted, marginTop: 3 },
+
+  // Current (chalu) order card on home
+  currentCard: {
+    backgroundColor: COLORS.surface, borderRadius: 18, padding: 18,
+    borderWidth: 2, borderColor: COLORS.secondary + '55',
+    shadowColor: COLORS.secondary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 4,
+  },
+  currentTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  currentBadge: { backgroundColor: COLORS.secondaryBg, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
+  currentBadgeText: { fontSize: 12, fontWeight: '800', color: COLORS.secondary },
+  currentStatus: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
+  currentOrderId: { fontSize: 12, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: 12 },
+  currentBottom: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginTop: 6, borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 12,
+  },
+  resumeBtn: { backgroundColor: COLORS.secondary, borderRadius: 12, paddingHorizontal: 18, paddingVertical: 10 },
+  resumeBtnText: { color: '#fff', fontSize: 14, fontWeight: '800' },
   listHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
   listHeaderText: { fontSize: 16, fontWeight: '800', color: COLORS.text },
   countPill: { backgroundColor: COLORS.secondary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
@@ -604,6 +682,13 @@ const styles = StyleSheet.create({
   },
   modalMetaLabel: { fontSize: 10, color: COLORS.textMuted, fontWeight: '600', marginBottom: 4 },
   modalMetaValue: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+
+  ringTimerWrap: { paddingHorizontal: 16, marginBottom: 12 },
+  ringTimerTrack: {
+    height: 8, borderRadius: 4, backgroundColor: COLORS.primary + '22', overflow: 'hidden',
+  },
+  ringTimerFill: { height: 8, borderRadius: 4, backgroundColor: COLORS.primary },
+  ringTimerText: { fontSize: 11, fontWeight: '600', color: COLORS.textMuted, marginTop: 6, textAlign: 'center' },
 
   modalBtnRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16 },
   declineBtn: {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert, TextInput, Animated, TouchableOpacity,
+  View, Text, StyleSheet, ScrollView, Alert, TextInput, Animated, TouchableOpacity, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
@@ -18,10 +18,24 @@ import apiClient from '../../services/apiClient';
 import Button       from '../../components/common/Button';
 import StatusBadge  from '../../components/common/StatusBadge';
 import ScreenHeader from '../../components/navigation/ScreenHeader';
-import { Order, Coordinates } from '../../types';
+import { Order, Coordinates, UserProfile } from '../../types';
 import { formatCurrency, truncateAddress } from '../../utils/formatters';
 
 type Route = RouteProp<RiderStackParamList, 'ActiveDelivery'>;
+
+// Rider must be within this many metres of the target before OTP entry unlocks.
+const OTP_RANGE_M = 100;
+
+// Haversine distance in metres between two lat/lng points.
+const distanceMeters = (a: Coordinates, b: Coordinates) => {
+  const R = 6371000;
+  const dLat = (b.lat - a.lat) * Math.PI / 180;
+  const dLng = (b.lng - a.lng) * Math.PI / 180;
+  const la1 = a.lat * Math.PI / 180;
+  const la2 = b.lat * Math.PI / 180;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+};
 
 const ActiveDeliveryScreen = () => {
   const route      = useRoute<Route>();
@@ -176,6 +190,9 @@ const ActiveDeliveryScreen = () => {
   }, [riderPos?.lat, riderPos?.lng, order?.status]);
 
   const handlePickupConfirm = async () => {
+    if (!withinRange) {
+      return Alert.alert('Pickup Se Door Ho', 'OTP daalne ke liye pickup location ke 100m ke andar aao.');
+    }
     if (!otp || otp.length !== 4) {
       return Alert.alert('OTP Galat Hai', 'Customer se 4-digit OTP lo aur enter karo.');
     }
@@ -195,6 +212,9 @@ const ActiveDeliveryScreen = () => {
   };
 
   const handleDeliveryConfirm = async () => {
+    if (!withinRange) {
+      return Alert.alert('Delivery Se Door Ho', 'OTP daalne ke liye delivery location ke 100m ke andar aao.');
+    }
     if (!otp || otp.length !== 4) {
       return Alert.alert('OTP Galat Hai', 'Customer se 4-digit OTP lo aur enter karo.');
     }
@@ -220,6 +240,11 @@ const ActiveDeliveryScreen = () => {
   const isDelivery = order?.status === 'picked_up';
   const isDone     = order?.status === 'delivered';
 
+  // Order owner (customer) details for the contact card + call button.
+  const customer = order && typeof order.customer === 'object' && order.customer
+    ? (order.customer as UserProfile)
+    : null;
+
   const startNavigation = () => {
     if (!order) return;
     const target = isPickup ? order.pickup : order.delivery;
@@ -232,6 +257,15 @@ const ActiveDeliveryScreen = () => {
   };
 
   const targetCoords = isPickup ? pickupCoords : deliveryCoords;
+
+  // Distance from the rider to the active target — OTP only unlocks within 100m.
+  const distToTarget = riderPos && targetCoords ? distanceMeters(riderPos, targetCoords) : null;
+  const withinRange  = distToTarget !== null && distToTarget <= OTP_RANGE_M;
+  const rangeMsg = !riderPos
+    ? { text: '📍 Location le rahe hain…', ok: false }
+    : withinRange
+      ? { text: '✅ Aap location pe pohonch gaye — OTP daalo', ok: true }
+      : { text: `📍 ${Math.round(distToTarget!)} m door — OTP daalne ke liye 100m ke andar aao`, ok: false };
 
   const initialRegion = targetCoords
     ? { latitude: targetCoords.lat, longitude: targetCoords.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 }
@@ -363,6 +397,32 @@ const ActiveDeliveryScreen = () => {
               <Text style={styles.earningValue}>{formatCurrency(order.riderEarning)}</Text>
             </View>
 
+            {/* Customer contact card + call */}
+            {customer && !isDone && (
+              <View style={styles.customerCard}>
+                <View style={styles.customerAvatar}>
+                  <Text style={styles.customerAvatarText}>
+                    {customer.name ? customer.name.charAt(0).toUpperCase() : '👤'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.customerLabel}>Customer</Text>
+                  <Text style={styles.customerName} numberOfLines={1}>{customer.name || 'Customer'}</Text>
+                  {customer.phone ? (
+                    <Text style={styles.customerPhone} numberOfLines={1}>{customer.phone}</Text>
+                  ) : null}
+                </View>
+                {customer.phone ? (
+                  <TouchableOpacity
+                    style={styles.callBtn}
+                    onPress={() => Linking.openURL(`tel:${customer.phone}`)}
+                    activeOpacity={0.85}>
+                    <Text style={styles.callBtnIcon}>📞</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
+
             {/* Route summary */}
             <View style={styles.routeSummary}>
               <View style={styles.routeRow}>
@@ -412,8 +472,13 @@ const ActiveDeliveryScreen = () => {
                     <Text style={styles.otpHint}>Customer se OTP lo aur yahan type karo</Text>
                   </View>
                 </View>
+                <View style={[styles.rangeBanner, rangeMsg.ok ? styles.rangeBannerOk : styles.rangeBannerWarn]}>
+                  <Text style={[styles.rangeText, { color: rangeMsg.ok ? COLORS.success : COLORS.warning }]}>
+                    {rangeMsg.text}
+                  </Text>
+                </View>
                 <TextInput
-                  style={[styles.otpInput, { borderColor: COLORS.success }]}
+                  style={[styles.otpInput, { borderColor: COLORS.success }, !withinRange && styles.otpInputDisabled]}
                   value={otp}
                   onChangeText={setOtp}
                   placeholder="_ _ _ _"
@@ -421,11 +486,13 @@ const ActiveDeliveryScreen = () => {
                   keyboardType="number-pad"
                   maxLength={4}
                   textAlign="center"
+                  editable={withinRange}
                 />
                 <Button
-                  title="Pickup Confirm Karo"
+                  title={withinRange ? 'Pickup Confirm Karo' : 'Pickup Ke Paas Jao'}
                   onPress={handlePickupConfirm}
                   loading={loading}
+                  disabled={!withinRange}
                   variant="success"
                   style={{ marginTop: 4 }}
                 />
@@ -442,8 +509,13 @@ const ActiveDeliveryScreen = () => {
                     <Text style={styles.otpHint}>Customer se OTP lo aur yahan type karo</Text>
                   </View>
                 </View>
+                <View style={[styles.rangeBanner, rangeMsg.ok ? styles.rangeBannerOk : styles.rangeBannerWarn]}>
+                  <Text style={[styles.rangeText, { color: rangeMsg.ok ? COLORS.success : COLORS.warning }]}>
+                    {rangeMsg.text}
+                  </Text>
+                </View>
                 <TextInput
-                  style={[styles.otpInput, { borderColor: COLORS.primary }]}
+                  style={[styles.otpInput, { borderColor: COLORS.primary }, !withinRange && styles.otpInputDisabled]}
                   value={otp}
                   onChangeText={setOtp}
                   placeholder="_ _ _ _"
@@ -451,11 +523,13 @@ const ActiveDeliveryScreen = () => {
                   keyboardType="number-pad"
                   maxLength={4}
                   textAlign="center"
+                  editable={withinRange}
                 />
                 <Button
-                  title="Delivery Confirm Karo"
+                  title={withinRange ? 'Delivery Confirm Karo' : 'Delivery Ke Paas Jao'}
                   onPress={handleDeliveryConfirm}
                   loading={loading}
+                  disabled={!withinRange}
                   variant="primary"
                   style={{ marginTop: 4 }}
                 />
@@ -551,6 +625,27 @@ const styles = StyleSheet.create({
   earningLabel: { fontSize: 13, color: COLORS.success, fontWeight: '600' },
   earningValue: { fontSize: 26, fontWeight: '900', color: COLORS.success },
 
+  // Customer contact card
+  customerCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.surface, borderRadius: 14, padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  customerAvatar: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.secondary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  customerAvatarText: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  customerLabel: { fontSize: 10, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3 },
+  customerName:  { fontSize: 15, fontWeight: '800', color: COLORS.text, marginTop: 1 },
+  customerPhone: { fontSize: 12, fontWeight: '600', color: COLORS.secondary, marginTop: 1 },
+  callBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.successBg,
+    borderWidth: 1, borderColor: COLORS.success + '55',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  callBtnIcon: { fontSize: 20 },
+
   routeSummary: {
     backgroundColor: COLORS.surface, borderRadius: 14, padding: 14, marginBottom: 12,
     borderWidth: 1, borderColor: COLORS.border,
@@ -582,6 +677,15 @@ const styles = StyleSheet.create({
     letterSpacing: 16, color: COLORS.text, marginBottom: 4,
     backgroundColor: COLORS.surface2,
   },
+  otpInputDisabled: { opacity: 0.4, borderColor: COLORS.border },
+
+  rangeBanner: {
+    borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, marginBottom: 12,
+    borderWidth: 1,
+  },
+  rangeBannerOk:   { backgroundColor: COLORS.successBg, borderColor: COLORS.success + '40' },
+  rangeBannerWarn: { backgroundColor: COLORS.warningBg, borderColor: COLORS.warning + '40' },
+  rangeText: { fontSize: 12.5, fontWeight: '700', textAlign: 'center' },
 
   doneBanner: {
     backgroundColor: COLORS.successBg, borderRadius: 16, padding: 24,

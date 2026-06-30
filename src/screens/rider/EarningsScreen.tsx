@@ -1,6 +1,7 @@
-import React, { useEffect, useCallback, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '../../constants/api';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import useAppSelector   from '../../hooks/useAppSelector';
@@ -20,14 +21,16 @@ const EarningsScreen = () => {
       dispatch(setEarnings(data.data));
     } catch { /* silent */ }
     finally { setLoading(false); }
-  }, []);
+  }, [dispatch]);
 
-  useEffect(() => { load(); }, []);
+  // Tab pe har baar aane par fresh earnings laao — mount-only fetch ek failed
+  // request ke baad screen ko hamesha ke liye ₹0 par atka deta tha.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const periods = [
     { label: 'Today',      icon: '☀️', amount: earnings?.today?.amount || 0, count: earnings?.today?.count || 0, color: COLORS.warning },
-    { label: 'This Week',  icon: '📅', amount: earnings?.week?.amount  || 0, count: earnings?.week?.count  || 0, color: COLORS.secondary },
-    { label: 'This Month', icon: '📆', amount: earnings?.month?.amount || 0, count: earnings?.month?.count || 0, color: COLORS.success },
+    { label: 'This Week',  icon: '💵', amount: earnings?.week?.amount  || 0, count: earnings?.week?.count  || 0, color: COLORS.secondary },
+    { label: 'This Month', icon: '💰', amount: earnings?.month?.amount || 0, count: earnings?.month?.count || 0, color: COLORS.success },
   ];
 
   const rating = (earnings?.rating || 5.0).toFixed(1);

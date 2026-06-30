@@ -7,6 +7,8 @@ router.post('/',                 protect, requireRole('customer'), ctrl.createOr
 router.get('/',                  protect, ctrl.getOrders);
 router.get('/pending',           protect, requireRole('rider'),    ctrl.getPendingOrders);
 router.get('/:id',               protect, ctrl.getOrder);
+router.get('/:id/nearby-riders', protect, ctrl.getNearbyRiders);
+router.post('/:id/redispatch',   protect, requireRole('customer'), ctrl.redispatchOrder);
 router.post('/:id/accept',       protect, requireRole('rider'),    ctrl.acceptOrder);
 router.post('/:id/pickup',       protect, requireRole('rider'),    ctrl.confirmPickup);
 router.post('/:id/deliver',      protect, requireRole('rider'),    ctrl.confirmDelivery);

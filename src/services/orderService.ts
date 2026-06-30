@@ -57,3 +57,15 @@ export const cancelOrder = async (id: string, note?: string): Promise<Order> => 
   const { data } = await apiClient.post(`/orders/${id}/cancel`, { note });
   return data.data;
 };
+
+// Pickup ke 5km ke andar online riders ke coords (searching map ke dots ke liye)
+export const getNearbyRiders = async (id: string): Promise<{ lat: number; lng: number }[]> => {
+  const { data } = await apiClient.get(`/orders/${id}/nearby-riders`);
+  return data.data;
+};
+
+// "Order Again" — pending order ko dobara nearby riders ko dispatch karo
+export const redispatchOrder = async (id: string): Promise<Order> => {
+  const { data } = await apiClient.post(`/orders/${id}/redispatch`);
+  return data.data;
+};

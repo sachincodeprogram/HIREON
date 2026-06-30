@@ -1,21 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, Linking, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Polyline, PROVIDER_GOOGLE, AnimatedRegion, MarkerAnimated } from 'react-native-maps';
 import { CustomerStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import { setActiveOrder, setRiderCoords } from '../../store/slices/orderSlice';
 import { connectSocket, trackOrder, getSocket } from '../../services/socketService';
-import { getOrderById, cancelOrder } from '../../services/orderService';
+import { getOrderById, cancelOrder, getNearbyRiders, redispatchOrder } from '../../services/orderService';
 import { fetchRoute } from '../../services/routeService';
 import StatusBadge from '../../components/common/StatusBadge';
 import Button      from '../../components/common/Button';
-import { Order, Coordinates } from '../../types';
+import { Order, Coordinates, UserProfile } from '../../types';
 import { formatCurrency, truncateAddress } from '../../utils/formatters';
 
 type Route = RouteProp<CustomerStackParamList, 'LiveTracking'>;
+
+// Rider dhoondhne ka total window: 1km + 3km + 5km, har tier 1:30 min = 4:30 total.
+const SEARCH_TOTAL_MS = 270000;
 
 const LiveTrackingScreen = () => {
   const route      = useRoute<Route>();
@@ -26,12 +29,23 @@ const LiveTrackingScreen = () => {
   const mapRef     = useRef<MapView>(null);
   const [order,    setOrder]    = useState<Order | null>(null);
   const [riderPos, setRiderPos] = useState<Coordinates | null>(null);
+  const [hasRider, setHasRider] = useState(false);
   const [loading,  setLoading]  = useState(false);
+  const riderAnim = useRef<AnimatedRegion | null>(null);
   const [routeCoords,   setRouteCoords]   = useState<{ latitude: number; longitude: number }[]>([]);
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
   const lastRouteOrigin = useRef<Coordinates | null>(null);
   const lastRouteTarget = useRef<Coordinates | null>(null);
+
+  // Rider search (order pending hone tak): 5km ke andar online riders + progress bar
+  const [nearbyRiders, setNearbyRiders] = useState<Coordinates[]>([]);
+  const [noRider,       setNoRider]      = useState(false);
+  const [retrying,      setRetrying]     = useState(false);
+  const [searchStart,   setSearchStart]  = useState<number>(0);
+  const searchProgress = useRef(new Animated.Value(0)).current;
+
+  const searching = !!order && order.status === 'pending' && !noRider;
 
   useEffect(() => {
     let mounted = true;
@@ -42,14 +56,23 @@ const LiveTrackingScreen = () => {
         const socket = await connectSocket();
         trackOrder(orderId);
         socket.on('rider_location', (coords: Coordinates) => {
-          if (mounted) {
-            setRiderPos(coords);
-            dispatch(setRiderCoords(coords));
+          if (!mounted) return;
+          setRiderPos(coords);
+          dispatch(setRiderCoords(coords));
+          // Smoothly glide the rider marker to the new fix instead of teleporting.
+          const next = { latitude: coords.lat, longitude: coords.lng, latitudeDelta: 0, longitudeDelta: 0 };
+          if (!riderAnim.current) {
+            riderAnim.current = new AnimatedRegion(next);
+            setHasRider(true);
+          } else {
+            riderAnim.current.timing({ ...next, duration: 1000, useNativeDriver: false } as any).start();
           }
         });
         socket.on('order_update', (update: Partial<Order> & { status: Order['status'] }) => {
           if (mounted) setOrder(prev => prev ? { ...prev, ...update } : prev);
         });
+        // 4:30 tak koi rider na mile to backend yeh bhejta hai.
+        socket.on('order_no_rider', () => { if (mounted) setNoRider(true); });
       } catch { /* silent */ }
     };
     init();
@@ -57,6 +80,7 @@ const LiveTrackingScreen = () => {
       mounted = false;
       getSocket()?.off('rider_location');
       getSocket()?.off('order_update');
+      getSocket()?.off('order_no_rider');
     };
   }, [orderId]);
 
@@ -108,6 +132,52 @@ const LiveTrackingScreen = () => {
     return () => { cancelled = true; };
   }, [riderPos?.lat, riderPos?.lng, order?.status]);
 
+  // Pehli baar pending order aaye to search ki shuruaat order ke createdAt se maano.
+  useEffect(() => {
+    if (order && order.status === 'pending' && searchStart === 0) {
+      setSearchStart(new Date(order.createdAt).getTime());
+    }
+  }, [order?.status, order?.createdAt]);
+
+  // Rider search window: ease-out progress bar (shuru fast, end ke paas slow) +
+  // 5km ke andar online riders ko map par dots ki tarah dikhao (har 8s refresh).
+  useEffect(() => {
+    if (!searching || !searchStart) return;
+    const elapsed   = Math.max(0, Date.now() - searchStart);
+    const remaining = Math.max(0, SEARCH_TOTAL_MS - elapsed);
+    searchProgress.setValue(Math.min(1, elapsed / SEARCH_TOTAL_MS));
+    const anim = Animated.timing(searchProgress, {
+      toValue: 1,
+      duration: remaining || 1,
+      easing: Easing.out(Easing.quad),   // fast start -> slow finish
+      useNativeDriver: false,
+    });
+    anim.start();
+
+    let active = true;
+    const load = () => {
+      getNearbyRiders(orderId).then(r => { if (active) setNearbyRiders(r || []); }).catch(() => {});
+    };
+    load();
+    const poll = setInterval(load, 8000);
+    return () => { active = false; anim.stop(); clearInterval(poll); };
+  }, [searching, searchStart, orderId]);
+
+  // "Order Again" — same order dobara dispatch + fresh 4:30 search.
+  const handleOrderAgain = async () => {
+    try {
+      setRetrying(true);
+      await redispatchOrder(orderId);
+      searchProgress.setValue(0);
+      setNoRider(false);
+      setSearchStart(Date.now());
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   const handleCancel = async () => {
     Alert.alert('Cancel Order', 'Are you sure you want to cancel?', [
       { text: 'Keep Order', style: 'cancel' },
@@ -137,12 +207,25 @@ const LiveTrackingScreen = () => {
   const deliveryLatLng = deliveryCoords
     ? { latitude: deliveryCoords.lat, longitude: deliveryCoords.lng }
     : null;
-  const riderLatLng    = riderPos
-    ? { latitude: riderPos.lat, longitude: riderPos.lng }
+  // Live delivery progress (stepper) + assigned rider details for the info card.
+  const cancelled = order?.status === 'cancelled';
+  const stepIndex = (() => {
+    switch (order?.status) {
+      case 'accepted':   return 1;
+      case 'picked_up':
+      case 'in_transit': return 2;
+      case 'delivered':  return 3;
+      default:           return 0;
+    }
+  })();
+  const rider = order && typeof order.rider === 'object' && order.rider
+    ? (order.rider as UserProfile)
     : null;
 
   const formatDuration = (min: number) =>
     min < 60 ? `${Math.round(min)} min` : `${Math.floor(min / 60)}h ${Math.round(min % 60)}min`;
+
+  const progressWidth = searchProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
     <View style={styles.container}>
@@ -170,13 +253,23 @@ const LiveTrackingScreen = () => {
         {deliveryLatLng && (
           <Marker coordinate={deliveryLatLng} title="Delivery" pinColor={COLORS.primary} />
         )}
-        {riderLatLng && (
-          <Marker coordinate={riderLatLng} title="Rider">
+        {hasRider && riderAnim.current && (
+          <MarkerAnimated coordinate={riderAnim.current as any} anchor={{ x: 0.5, y: 0.5 }} title="Rider">
             <View style={styles.riderMarker}>
               <Text style={{ fontSize: 20 }}>🏍️</Text>
             </View>
-          </Marker>
+          </MarkerAnimated>
         )}
+
+        {/* Aas-paas ke online riders (5km) — sirf jab tak rider dhoondh rahe hain */}
+        {searching && nearbyRiders.map((r, i) => (
+          <Marker
+            key={`nr-${i}`}
+            coordinate={{ latitude: r.lat, longitude: r.lng }}
+            anchor={{ x: 0.5, y: 0.5 }}>
+            <View style={styles.nearbyRider}><Text style={{ fontSize: 13 }}>🏍️</Text></View>
+          </Marker>
+        ))}
       </MapView>
 
       {/* Live ETA / distance chip — rider kitni door hai */}
@@ -215,6 +308,84 @@ const LiveTrackingScreen = () => {
               </View>
               <StatusBadge status={order.status} />
             </View>
+
+            {/* Live delivery progress stepper */}
+            {!cancelled && (
+              <View style={styles.stepper}>
+                {['Placed', 'Accepted', 'Picked', 'Delivered'].map((label, i) => (
+                  <React.Fragment key={label}>
+                    <View style={styles.stepItem}>
+                      <View style={[styles.stepDot, i <= stepIndex && styles.stepDotActive]}>
+                        {i < stepIndex
+                          ? <Text style={styles.stepCheck}>✓</Text>
+                          : <View style={[styles.stepInner, i === stepIndex && styles.stepInnerActive]} />}
+                      </View>
+                      <Text style={[styles.stepLabel, i <= stepIndex && styles.stepLabelActive]}>{label}</Text>
+                    </View>
+                    {i < 3 && <View style={[styles.stepLine, i < stepIndex && styles.stepLineActive]} />}
+                  </React.Fragment>
+                ))}
+              </View>
+            )}
+
+            {/* Rider dhoondhne ka progress bar (ease-out animation) */}
+            {searching && (
+              <View style={styles.searchCard}>
+                <Text style={styles.searchTitle}>🔍 Rider dhoondh rahe hain…</Text>
+                <Text style={styles.searchSub}>
+                  {nearbyRiders.length > 0
+                    ? `${nearbyRiders.length} rider aas-paas (5km) — request bheji ja rahi hai`
+                    : 'Aas-paas ke riders ko request bheji ja rahi hai'}
+                </Text>
+                <View style={styles.searchBarTrack}>
+                  <Animated.View style={[styles.searchBarFill, { width: progressWidth }]} />
+                </View>
+              </View>
+            )}
+
+            {/* 4:30 me koi rider na mila */}
+            {noRider && (
+              <View style={styles.noRiderCard}>
+                <Text style={styles.noRiderIcon}>😕</Text>
+                <Text style={styles.noRiderTitle}>Koi rider uplabdh nahi hai</Text>
+                <Text style={styles.noRiderSub}>
+                  Abhi aas-paas koi rider free nahi mila. Thodi der me dobara try karein.
+                </Text>
+                <Button
+                  title="Order Again"
+                  onPress={handleOrderAgain}
+                  loading={retrying}
+                  style={{ marginTop: 12 }}
+                />
+              </View>
+            )}
+
+            {/* Assigned rider info + call */}
+            {rider && !['delivered', 'cancelled'].includes(order.status) && (
+              <View style={styles.riderCard}>
+                <View style={styles.riderAvatar}>
+                  <Text style={styles.riderAvatarText}>
+                    {rider.name ? rider.name.charAt(0).toUpperCase() : '🏍'}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.riderName} numberOfLines={1}>{rider.name || 'Your Rider'}</Text>
+                  <Text style={styles.riderMeta} numberOfLines={1}>
+                    {rider.vehicleType || 'Bike'}
+                    {rider.vehicleNumber ? ` · ${rider.vehicleNumber}` : ''}
+                    {typeof rider.rating === 'number' ? `  ⭐ ${rider.rating.toFixed(1)}` : ''}
+                  </Text>
+                </View>
+                {rider.phone ? (
+                  <TouchableOpacity
+                    style={styles.callBtn}
+                    onPress={() => Linking.openURL(`tel:${rider.phone}`)}
+                    activeOpacity={0.85}>
+                    <Text style={styles.callBtnIcon}>📞</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
 
             <View style={styles.routeCard}>
               <View style={styles.routeRow}>
@@ -280,9 +451,76 @@ const styles = StyleSheet.create({
   map:         { flex: 1 },
   riderMarker: {
     backgroundColor: '#fff', borderRadius: 20, padding: 6,
+    borderWidth: 2, borderColor: COLORS.primary,
     elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2, shadowRadius: 4,
   },
+  nearbyRider: {
+    backgroundColor: '#fff', borderRadius: 16, padding: 4,
+    borderWidth: 1.5, borderColor: COLORS.success,
+    elevation: 3, shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.18, shadowRadius: 3, opacity: 0.95,
+  },
+
+  // Rider search progress
+  searchCard: {
+    backgroundColor: COLORS.primaryBg, borderRadius: 14, padding: 14, marginBottom: 12,
+    borderWidth: 1, borderColor: COLORS.primary + '22',
+  },
+  searchTitle: { fontSize: 14, fontWeight: '800', color: COLORS.primary, marginBottom: 4 },
+  searchSub:   { fontSize: 12, fontWeight: '600', color: COLORS.textMuted, marginBottom: 10 },
+  searchBarTrack: {
+    height: 8, borderRadius: 4, backgroundColor: COLORS.primary + '22', overflow: 'hidden',
+  },
+  searchBarFill: { height: 8, borderRadius: 4, backgroundColor: COLORS.primary },
+
+  // No rider state
+  noRiderCard: {
+    backgroundColor: COLORS.surface2, borderRadius: 14, padding: 18, marginBottom: 12,
+    alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
+  },
+  noRiderIcon:  { fontSize: 30, marginBottom: 6 },
+  noRiderTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text, marginBottom: 4 },
+  noRiderSub:   { fontSize: 12, fontWeight: '500', color: COLORS.textMuted, textAlign: 'center', lineHeight: 17 },
+
+  // Delivery progress stepper
+  stepper: {
+    flexDirection: 'row', alignItems: 'center', marginBottom: 16, paddingHorizontal: 4,
+  },
+  stepItem:  { alignItems: 'center', width: 56 },
+  stepDot: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: COLORS.surface2, borderWidth: 2, borderColor: COLORS.border,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stepDotActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
+  stepInner:     { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.border },
+  stepInnerActive: { backgroundColor: '#fff' },
+  stepCheck:     { color: '#fff', fontSize: 13, fontWeight: '900' },
+  stepLabel:     { fontSize: 10, fontWeight: '600', color: COLORS.textMuted, marginTop: 4 },
+  stepLabelActive: { color: COLORS.primary, fontWeight: '800' },
+  stepLine:      { flex: 1, height: 2, backgroundColor: COLORS.border, marginTop: -16, marginHorizontal: -6 },
+  stepLineActive: { backgroundColor: COLORS.primary },
+
+  // Assigned rider card
+  riderCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.surface2, borderRadius: 14, padding: 12, marginBottom: 12,
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  riderAvatar: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.primary,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  riderAvatarText: { color: '#fff', fontSize: 18, fontWeight: '900' },
+  riderName: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+  riderMeta: { fontSize: 12, fontWeight: '600', color: COLORS.textMuted, marginTop: 2 },
+  callBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.successBg,
+    borderWidth: 1, borderColor: COLORS.success + '55',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  callBtnIcon: { fontSize: 20 },
 
   etaBanner: {
     position: 'absolute', top: 56, left: 68, right: 16,
