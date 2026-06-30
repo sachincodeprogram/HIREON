@@ -2,16 +2,17 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, Switch, Alert, ActivityIndicator,
-  StatusBar, Modal, Vibration, Animated, Easing,
+  StatusBar, Modal, Vibration, Animated, Easing, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Circle } from 'react-native-svg';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import { RiderStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
-import { ELEVATION, glow } from '../../constants/theme';
+import { SPACING, RADIUS, ELEVATION, glow } from '../../constants/theme';
 import { fetchRoute } from '../../services/routeService';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import useAppSelector from '../../hooks/useAppSelector';
@@ -31,6 +32,27 @@ Sound.setCategory('Playback');
 
 // Ek rider ko order accept karne ka window = ek tier (1:30 min). Iske baad popup khud band.
 const RING_WINDOW_MS = 90000;
+
+const SCREEN_W = Dimensions.get('window').width;
+const HEADER_H = 152;
+
+// Premium blue gradient header (rider identity) with soft decorative orbs.
+// react-native-svg already linked — no native rebuild needed.
+const HeaderBg = () => (
+  <Svg width={SCREEN_W} height={HEADER_H} style={StyleSheet.absoluteFill}>
+    <Defs>
+      <SvgLinearGradient id="rhdr" x1="0" y1="0" x2="1" y2="1">
+        <Stop offset="0"    stopColor="#16299E" />
+        <Stop offset="0.55" stopColor={COLORS.secondary} />
+        <Stop offset="1"    stopColor="#2747C9" />
+      </SvgLinearGradient>
+    </Defs>
+    <Rect width={SCREEN_W} height={HEADER_H} fill="url(#rhdr)" />
+    <Circle cx={SCREEN_W - 28} cy={22} r={110} fill="rgba(255,255,255,0.08)" />
+    <Circle cx={SCREEN_W - 64} cy={130} r={56} fill="rgba(255,255,255,0.05)" />
+    <Circle cx={18} cy={HEADER_H - 6} r={70} fill="rgba(0,0,0,0.08)" />
+  </Svg>
+);
 
 const RiderDashboard = () => {
   const dispatch   = useAppDispatch();
@@ -345,68 +367,82 @@ const RiderDashboard = () => {
   const ringProgressWidth = ringProgress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <StatusBar backgroundColor={COLORS.secondary} barStyle="light-content" />
-
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.greeting}>Hey, {firstName} 👋</Text>
-          <Text style={styles.subGreeting}>Ready to deliver today?</Text>
-        </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{firstName[0].toUpperCase()}</Text>
-        </View>
-      </View>
-
-      {/* Online Toggle */}
-      <View style={[styles.onlineCard, isOnline ? styles.onlineCardActive : styles.onlineCardInactive]}>
-        <View style={[styles.statusDot, { backgroundColor: isOnline ? COLORS.online : COLORS.offline }]} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.onlineLabel}>{isOnline ? 'You are Online' : 'You are Offline'}</Text>
-          <Text style={styles.onlineSub}>{isOnline ? 'Receiving delivery requests' : 'Go online to earn money'}</Text>
-        </View>
-        {togglingOnline
-          ? <ActivityIndicator color={COLORS.secondary} size="small" />
-          : <Switch value={isOnline} onValueChange={toggleOnline} thumbColor="#fff" trackColor={{ true: COLORS.online, false: COLORS.border }} />
-        }
-      </View>
+    <View style={styles.container}>
+      <StatusBar backgroundColor="transparent" translucent barStyle="light-content" />
 
       <ScrollView
-        contentContainerStyle={styles.bodyScroll}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadCurrent} colors={[COLORS.secondary]} />}>
-        {/* Aaj ki snapshot */}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: SPACING.xxl }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadCurrent} colors={[COLORS.secondary]} tintColor={COLORS.secondary} progressViewOffset={60} />}>
+
+        {/* ── Gradient header ── */}
+        <View style={styles.header}>
+          <HeaderBg />
+          <SafeAreaView edges={['top']}>
+            <View style={styles.headerRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.greeting}>Hey, {firstName} 👋</Text>
+                <Text style={styles.subGreeting}>Ready to deliver today?</Text>
+              </View>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{firstName[0].toUpperCase()}</Text>
+              </View>
+            </View>
+          </SafeAreaView>
+        </View>
+
+        {/* ── Floating online toggle ── */}
+        <View style={styles.onlineWrap}>
+          <View style={[styles.onlineCard, isOnline ? styles.onlineCardActive : styles.onlineCardInactive]}>
+            <View style={[styles.statusDot, { backgroundColor: isOnline ? COLORS.online : COLORS.offline }]} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.onlineLabel}>{isOnline ? 'You are Online' : 'You are Offline'}</Text>
+              <Text style={styles.onlineSub}>{isOnline ? 'Receiving delivery requests' : 'Go online to earn money'}</Text>
+            </View>
+            {togglingOnline
+              ? <ActivityIndicator color={COLORS.secondary} size="small" />
+              : <Switch value={isOnline} onValueChange={toggleOnline} thumbColor="#fff" trackColor={{ true: COLORS.online, false: COLORS.border }} />
+            }
+          </View>
+        </View>
+
+        {/* ── Aaj ki snapshot ── */}
         {isOnline && (
           <View style={styles.statsRow}>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{formatCurrency(today?.amount || 0)}</Text>
-              <Text style={styles.statLabel}>Aaj ki kamai</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>{today?.count || 0}</Text>
-              <Text style={styles.statLabel}>Aaj deliveries</Text>
-            </View>
-            <View style={styles.statBox}>
-              <Text style={styles.statValue}>⭐ {rating.toFixed(1)}</Text>
-              <Text style={styles.statLabel}>Rating</Text>
-            </View>
+            {[
+              { icon: '💰', value: formatCurrency(today?.amount || 0), label: 'Aaj ki kamai', tint: COLORS.success },
+              { icon: '📦', value: String(today?.count || 0),          label: 'Deliveries',   tint: COLORS.secondary },
+              { icon: '⭐', value: rating.toFixed(1),                  label: 'Rating',       tint: COLORS.warning },
+            ].map(s => (
+              <View key={s.label} style={styles.statBox}>
+                <View style={[styles.statIconChip, { backgroundColor: s.tint + '16' }]}>
+                  <Text style={styles.statIcon}>{s.icon}</Text>
+                </View>
+                <Text style={styles.statValue} numberOfLines={1}>{s.value}</Text>
+                <Text style={styles.statLabel}>{s.label}</Text>
+              </View>
+            ))}
           </View>
         )}
-        {currentOrder ? (
-          renderCurrentOrder()
-        ) : isOnline ? (
-          <View style={styles.emptyWrap}>
-            <Text style={styles.emptyIcon}>🔍</Text>
-            <Text style={styles.emptyTitle}>Orders ka wait kar rahe hain…</Text>
-            <Text style={styles.emptySub}>Naya order aate hi screen par ring bajegi aur popup dikhega</Text>
-          </View>
-        ) : (
-          <View style={styles.offlineWrap}>
-            <View style={styles.offlineIconBox}><Text style={styles.offlineIcon}>😴</Text></View>
-            <Text style={styles.offlineTitle}>You're Offline</Text>
-            <Text style={styles.offlineSub}>Switch on karo aur delivery requests lena shuru karo</Text>
-          </View>
-        )}
+
+        {/* ── Body ── */}
+        <View style={styles.body}>
+          {currentOrder ? (
+            renderCurrentOrder()
+          ) : isOnline ? (
+            <View style={styles.emptyWrap}>
+              <View style={styles.emptyIconChip}><Text style={styles.emptyIcon}>🔍</Text></View>
+              <Text style={styles.emptyTitle}>Orders ka wait kar rahe hain…</Text>
+              <Text style={styles.emptySub}>Naya order aate hi screen par ring bajegi aur popup dikhega</Text>
+            </View>
+          ) : (
+            <View style={styles.offlineWrap}>
+              <View style={styles.offlineIconBox}><Text style={styles.offlineIcon}>😴</Text></View>
+              <Text style={styles.offlineTitle}>You're Offline</Text>
+              <Text style={styles.offlineSub}>Switch on karo aur delivery requests lena shuru karo</Text>
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* ─── New Order Ring Modal ─── */}
@@ -547,34 +583,38 @@ const RiderDashboard = () => {
           </Animated.View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container:  { flex: 1, backgroundColor: COLORS.background },
 
+  /* Gradient header */
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    backgroundColor: COLORS.secondary, paddingHorizontal: 20, paddingTop: 52, paddingBottom: 24,
-    borderBottomLeftRadius: 26, borderBottomRightRadius: 26,
-    ...glow(COLORS.secondary, 0.25),
+    height: HEADER_H,
+    paddingHorizontal: SPACING.xl,
+    borderBottomLeftRadius: 30, borderBottomRightRadius: 30,
+    overflow: 'hidden',
+    ...glow(COLORS.secondary, 0.28),
   },
-  headerLeft:  { flex: 1 },
-  greeting:    { fontSize: 22, fontWeight: '800', color: '#fff' },
-  subGreeting: { fontSize: 13, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
+  headerRow:   { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, marginTop: SPACING.sm },
+  greeting:    { fontSize: 23, fontWeight: '900', color: '#fff', letterSpacing: -0.3 },
+  subGreeting: { fontSize: 13, color: 'rgba(255,255,255,0.82)', marginTop: 3 },
   avatar: {
     width: 46, height: 46, borderRadius: 23,
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: 'rgba(255,255,255,0.22)',
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)',
+    borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)',
   },
-  avatarText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  avatarText: { color: '#fff', fontSize: 18, fontWeight: '900' },
 
+  /* Floating online toggle */
+  onlineWrap: { paddingHorizontal: SPACING.lg, marginTop: -38 },
   onlineCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    margin: 16, borderRadius: 18, padding: 16, borderWidth: 2,
-    ...ELEVATION.card,
+    borderRadius: RADIUS.xl, padding: 16, borderWidth: 2,
+    ...ELEVATION.md,
   },
   onlineCardActive:   { backgroundColor: '#F0FDF4', borderColor: COLORS.online },
   onlineCardInactive: { backgroundColor: COLORS.surface, borderColor: COLORS.border },
@@ -582,24 +622,26 @@ const styles = StyleSheet.create({
   onlineLabel: { fontSize: 15, fontWeight: '800', color: COLORS.text },
   onlineSub:   { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
 
-  list:    { paddingHorizontal: 16, paddingBottom: 32 },
-
-  bodyScroll: { flexGrow: 1, paddingHorizontal: 16, paddingBottom: 32 },
-
-  // Aaj ki snapshot
-  statsRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  /* Aaj ki snapshot */
+  statsRow: { flexDirection: 'row', gap: SPACING.md, paddingHorizontal: SPACING.lg, marginTop: SPACING.lg },
   statBox: {
-    flex: 1, backgroundColor: COLORS.surface, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 8,
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: RADIUS.lg, paddingVertical: SPACING.md, paddingHorizontal: 6,
     alignItems: 'center', borderWidth: 1, borderColor: COLORS.border,
+    ...ELEVATION.xs,
   },
-  statValue: { fontSize: 18, fontWeight: '900', color: COLORS.text },
-  statLabel: { fontSize: 11, fontWeight: '600', color: COLORS.textMuted, marginTop: 3 },
+  statIconChip: { width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginBottom: 7 },
+  statIcon:  { fontSize: 17 },
+  statValue: { fontSize: 15.5, fontWeight: '900', color: COLORS.text },
+  statLabel: { fontSize: 10.5, fontWeight: '600', color: COLORS.textMuted, marginTop: 3 },
+
+  /* Body */
+  body: { paddingHorizontal: SPACING.lg, marginTop: SPACING.xl },
 
   // Current (chalu) order card on home
   currentCard: {
-    backgroundColor: COLORS.surface, borderRadius: 18, padding: 18,
-    borderWidth: 2, borderColor: COLORS.secondary + '55',
-    shadowColor: COLORS.secondary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 4,
+    backgroundColor: COLORS.surface, borderRadius: RADIUS.xl, padding: 18,
+    borderWidth: 1, borderColor: COLORS.border, borderLeftWidth: 4, borderLeftColor: COLORS.secondary,
+    ...ELEVATION.card,
   },
   currentTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   currentBadge: { backgroundColor: COLORS.secondaryBg, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5 },
@@ -640,12 +682,13 @@ const styles = StyleSheet.create({
 
   btnRow: { flexDirection: 'row', gap: 10 },
 
-  emptyWrap:  { alignItems: 'center', paddingTop: 60, paddingHorizontal: 32 },
-  emptyIcon:  { fontSize: 52, marginBottom: 14 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text, marginBottom: 8 },
+  emptyWrap:  { alignItems: 'center', paddingTop: 44, paddingHorizontal: 32 },
+  emptyIconChip: { width: 84, height: 84, borderRadius: 42, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  emptyIcon:  { fontSize: 40 },
+  emptyTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text, marginBottom: 8, textAlign: 'center' },
   emptySub:   { fontSize: 13, color: COLORS.textMuted, textAlign: 'center', lineHeight: 20 },
 
-  offlineWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
+  offlineWrap: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, paddingTop: 44 },
   offlineIconBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.surface2, alignItems: 'center', justifyContent: 'center', marginBottom: 20 },
   offlineIcon:  { fontSize: 48 },
   offlineTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginBottom: 10 },
