@@ -39,35 +39,92 @@ export async function requestLocationPermission(): Promise<PermissionStatus> {
   }
 }
 
+function mapGpsError(err: { code?: number; message?: string }): Error {
+  if (err.code === 2) return new Error('GPS_OFF');
+  if (err.code === 3) return new Error('GPS_TIMEOUT');
+  return new Error(err.message || 'GPS_ERROR');
+}
+
+// Sabse accurate fix lao (outdoor par GPS se ~10m). watchPosition se kai
+// readings aati hain; hum best-accuracy waali rakhte hain aur target milte hi
+// turant resolve. maximumAge:0 => purana cached fix (pichhli jagah ka) kabhi
+// use nahi hota — yeh "10m bhi idhar-udhar" drift ka ek bada source hai.
+//
+// Agar high-accuracy GPS bilkul kuch na de (indoor / signal weak), tabhi
+// last-resort network fix lete hain taaki user atke nahi — par GPS hamesha
+// pehle, kyunki network 100m+ off ho sakta hai.
 export function getCurrentPosition(): Promise<Coordinates> {
   return new Promise((resolve, reject) => {
-    // Try high accuracy first (GPS satellite), fallback to network-based on timeout
-    Geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => {
-        Geolocation.getCurrentPosition(
-          pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-          err => {
-            if (err.code === 2) reject(new Error('GPS_OFF'));
-            else if (err.code === 3) reject(new Error('GPS_TIMEOUT'));
-            else reject(new Error(err.message));
-          },
-          { enableHighAccuracy: false, timeout: 10000, maximumAge: 30000 },
-        );
+    // Sirf bahut accurate fix par hi jaldi accept; warna poora window collect
+    // karke GPS ko converge hone do (accuracy 30s me 3–5m tak improve hoti hai).
+    const ACCURACY_TARGET_M = 8;     // itni accuracy mili to turant accept
+    const MAX_WAIT_MS        = 20000; // GPS ko itna time do best fix ke liye
+    let best: { lat: number; lng: number; acc: number } | null = null;
+    let watchId: number | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+
+    const cleanup = () => {
+      if (watchId != null) { Geolocation.clearWatch(watchId); watchId = null; }
+      if (timer) { clearTimeout(timer); timer = null; }
+    };
+    const done = (coords: Coordinates) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(coords);
+    };
+    const fail = (err: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(err);
+    };
+
+    // GPS window khatam: jo best GPS fix mila wahi do (accurate). Kuch na mila
+    // to network par last-resort fallback.
+    const onTimeout = () => {
+      if (best) { done({ lat: best.lat, lng: best.lng }); return; }
+      Geolocation.getCurrentPosition(
+        pos => done({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        err => fail(mapGpsError(err)),
+        { enableHighAccuracy: false, timeout: 8000, maximumAge: 10000 },
+      );
+    };
+
+    watchId = Geolocation.watchPosition(
+      pos => {
+        const acc = pos.coords.accuracy ?? 9999;
+        if (!best || acc < best.acc) {
+          best = { lat: pos.coords.latitude, lng: pos.coords.longitude, acc };
+        }
+        if (best.acc <= ACCURACY_TARGET_M) done({ lat: best.lat, lng: best.lng });
       },
-      { enableHighAccuracy: true, timeout: 6000, maximumAge: 5000 },
+      () => { /* readings na aaye to onTimeout network fallback handle karega */ },
+      { enableHighAccuracy: true, timeout: MAX_WAIT_MS, maximumAge: 0, distanceFilter: 0 },
     );
+
+    timer = setTimeout(onTimeout, MAX_WAIT_MS);
   });
 }
 
-export async function reverseGeocode(coords: Coordinates): Promise<LocationResult> {
+// Plain lat,lng string — jab koi bhi geocoder address na de paaye.
+function coordsFallback(coords: Coordinates): LocationResult {
+  return {
+    coordinates: coords,
+    address: `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`,
+    city: '', state: '', country: '',
+  };
+}
+
+// Google Geocoding API — best quality, par tabhi chalega jab project me
+// "Geocoding API" enable ho. Na ho to null return karo taaki OSM par fall karein.
+async function googleReverseGeocode(coords: Coordinates): Promise<LocationResult | null> {
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${coords.lat},${coords.lng}&key=${GOOGLE_MAPS_API_KEY}`;
     const res = await fetch(url);
     const json = await res.json();
-    if (json.status !== 'OK' || !json.results?.length) {
-      return { coordinates: coords, address: `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`, city: '', state: '', country: '' };
-    }
+    if (json.status !== 'OK' || !json.results?.length) return null;
     const result = json.results[0];
     const address = result.formatted_address || '';
     let city = '', state = '', country = '';
@@ -76,10 +133,41 @@ export async function reverseGeocode(coords: Coordinates): Promise<LocationResul
       else if (comp.types.includes('administrative_area_level_1')) state = comp.long_name;
       else if (comp.types.includes('country')) country = comp.long_name;
     }
+    if (!address) return null;
     return { coordinates: coords, address, city, state, country };
   } catch {
-    return { coordinates: coords, address: `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`, city: '', state: '', country: '' };
+    return null;
   }
+}
+
+// Free OpenStreetMap (Nominatim) fallback — Google fail hone par full address yahan se.
+// Routing wale Google→OSRM fallback ki tarah hi philosophy hai.
+async function osmReverseGeocode(coords: Coordinates): Promise<LocationResult | null> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${coords.lat}&lon=${coords.lng}&zoom=18&addressdetails=1`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'HIREON-App', 'Accept-Language': 'en' },
+    });
+    const json = await res.json();
+    const address = json?.display_name || '';
+    if (!address) return null;
+    const a = json.address || {};
+    const city = a.city || a.town || a.village || a.suburb || a.county || '';
+    const state = a.state || '';
+    const country = a.country || '';
+    return { coordinates: coords, address, city, state, country };
+  } catch {
+    return null;
+  }
+}
+
+export async function reverseGeocode(coords: Coordinates): Promise<LocationResult> {
+  // Google pehle, phir OSM, dono fail to lat,lng dikha do (kabhi crash nahi).
+  return (
+    (await googleReverseGeocode(coords)) ||
+    (await osmReverseGeocode(coords)) ||
+    coordsFallback(coords)
+  );
 }
 
 export async function getCurrentLocation(): Promise<LocationResult> {
