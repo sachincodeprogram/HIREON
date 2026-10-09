@@ -1,0 +1,39 @@
+import type { ReactNode, SVGProps } from 'react'
+
+// Lucide-style stroke icons, inline taaki koi extra dependency na lage.
+const base = (d: ReactNode) => (p: SVGProps<SVGSVGElement>) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" {...p}>{d}</svg>
+)
+
+export const IconDashboard = base(<><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></>)
+export const IconBox = base(<><path d="M21 8 12 3 3 8v8l9 5 9-5Z" /><path d="m3 8 9 5 9-5" /><path d="M12 13v8" /></>)
+export const IconUsers = base(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>)
+export const IconBike = base(<><circle cx="5.5" cy="17.5" r="3.5" /><circle cx="18.5" cy="17.5" r="3.5" /><path d="M15 6h2l3 11.5" /><path d="m5.5 17.5 4-7.5h6l-3 7.5" /></>)
+export const IconRupee = base(<><path d="M6 3h12" /><path d="M6 8h12" /><path d="m6 13 8.5 8" /><path d="M6 13h3a5 5 0 0 0 0-10" /></>)
+export const IconActivity = base(<path d="M22 12h-4l-3 9L9 3l-3 9H2" />)
+export const IconLogout = base(<><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></>)
+export const IconRefresh = base(<><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>)
+export const IconSearch = base(<><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></>)
+export const IconX = base(<><path d="M18 6 6 18" /><path d="m6 6 12 12" /></>)
+export const IconMenu = base(<><path d="M4 6h16" /><path d="M4 12h16" /><path d="M4 18h16" /></>)
+export const IconShield = base(<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />)
+export const IconPin = base(<><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" /><circle cx="12" cy="10" r="3" /></>)
+export const IconChevronLeft = base(<path d="m15 18-6-6 6-6" />)
+export const IconChevronRight = base(<path d="m9 18 6-6-6-6" />)
+export const IconStar = base(<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z" />)
+export const IconSun = base(<><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></>)
+export const IconArrowUp = base(<><path d="M12 19V5" /><path d="m5 12 7-7 7 7" /></>)
+export const IconArrowDown = base(<><path d="M12 5v14" /><path d="m19 12-7 7-7-7" /></>)
+export const IconChevronDown = base(<path d="m6 9 6 6 6-6" />)
+export const IconCheck = base(<path d="M20 6 9 17l-5-5" />)
+export const IconCopy = base(<><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></>)
+export const IconDownload = base(<><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="m7 10 5 5 5-5" /><path d="M12 15V3" /></>)
+export const IconChart = base(<><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></>)
+export const IconServer = base(<><rect x="2" y="3" width="20" height="8" rx="2" /><rect x="2" y="13" width="20" height="8" rx="2" /><path d="M6 7h.01M6 17h.01" /></>)
+export const IconExternal = base(<><path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /></>)
+export const IconCommand = base(<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />)
+export const IconClock = base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>)
+export const IconMap = base(<><path d="M9 3 3 5v16l6-2 6 2 6-2V3l-6 2-6-2Z" /><path d="M9 3v16" /><path d="M15 5v16" /></>)
+export const IconBan = base(<><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>)
+export const IconMoon = base(<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />)
