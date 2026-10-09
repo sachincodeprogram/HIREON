@@ -14,6 +14,7 @@ const registerSocketHandlers = (io) => {
         const phone = token.slice(4);
         const user  = await User.findOne({ phone });
         if (!user) return next(new Error('User not found'));
+        if (user.isBlocked) return next(new Error('Account blocked'));
         socket.user = user;
         return next();
       }
@@ -21,6 +22,7 @@ const registerSocketHandlers = (io) => {
       const decoded = await auth().verifyIdToken(token);
       const user    = await User.findOne({ firebaseUid: decoded.uid });
       if (!user) return next(new Error('User not found'));
+      if (user.isBlocked) return next(new Error('Account blocked'));
       socket.user = user;
       next();
     } catch {

@@ -21,6 +21,19 @@ const userSchema = new mongoose.Schema({
   ratingCount:       { type: Number, default: 0 },
 
   deletedAt:         { type: Date, default: null },
+
+  // Admin moderation — complaint aane par account block. Blocked user sirf apni
+  // profile (GET /auth/me) dekh sakta hai, baaki sab API/socket band.
+  isBlocked:    { type: Boolean, default: false, index: true },
+  blockedAt:    { type: Date, default: null },
+  blockReason:  { type: String, default: '' },
+  // Audit trail — kab, kyun block/unblock hua
+  blockHistory: [{
+    _id:    false,
+    action: { type: String, enum: ['block', 'unblock'], required: true },
+    reason: { type: String, default: '' },
+    at:     { type: Date, default: Date.now },
+  }],
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);

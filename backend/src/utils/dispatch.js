@@ -49,7 +49,7 @@ const notifyTier = async (io, onlineRiders, { id, pickup, payload }, radiusKm, e
   const fresh = await Order.findById(id).select('status');
   if (!fresh || fresh.status !== 'pending') { cancelDispatch(id); return; }
 
-  const riders = await User.find({ role: 'rider', isOnline: true })
+  const riders = await User.find({ role: 'rider', isOnline: true, isBlocked: { $ne: true } })
     .select('_id fcmToken').lean();
   if (riders.length === 0) return;
 
