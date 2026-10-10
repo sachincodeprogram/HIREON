@@ -26,9 +26,25 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
+// Admin ne account block kiya — backend har request par 403 ACCOUNT_BLOCKED deta hai
+// (socket bhi "Account blocked" se reject hota hai). RootNavigator yahan sunta hai
+// aur turant "Account blocked" screen dikhata hai.
+type BlockedListener = () => void;
+const blockedListeners = new Set<BlockedListener>();
+export const onAccountBlocked = (fn: BlockedListener): (() => void) => {
+  blockedListeners.add(fn);
+  return () => { blockedListeners.delete(fn); };
+};
+export const notifyAccountBlocked = () => {
+  blockedListeners.forEach(fn => { try { fn(); } catch { /* listener error ignore */ } });
+};
+
 apiClient.interceptors.response.use(
   res => res,
   err => {
+    if (err.response?.status === 403 && err.response?.data?.data?.code === 'ACCOUNT_BLOCKED') {
+      notifyAccountBlocked();
+    }
     const e: any = new Error(err.response?.data?.message || err.message);
     // HTTP status bhi saath rakho — callers 404 (profile nahi) aur
     // network/timeout error me farq kar saken.

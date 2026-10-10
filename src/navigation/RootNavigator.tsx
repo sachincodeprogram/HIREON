@@ -11,11 +11,12 @@ import SplashScreen      from '../screens/SplashScreen';
 import AuthNavigator     from './AuthNavigator';
 import CustomerNavigator from './CustomerNavigator';
 import RiderNavigator    from './RiderNavigator';
+import AccountBlockedScreen from '../screens/AccountBlockedScreen';
 
 import { useAppDispatch } from '../hooks/useAppDispatch';
 import { setProfile, clearAuth } from '../store/slices/authSlice';
 import { getMyProfile } from '../services/authService';
-import { getDevPhone } from '../services/apiClient';
+import { getDevPhone, onAccountBlocked } from '../services/apiClient';
 import type { RootState } from '../store';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -24,6 +25,7 @@ const RootNavigator = () => {
   const dispatch = useAppDispatch();
   const profile  = useSelector((state: RootState) => state.auth.profile);
   const role     = profile?.role ?? null;
+  const blocked  = !!profile?.isBlocked;
 
   const [showSplash,   setShowSplash]   = useState(true);
   const [initializing, setInitializing] = useState(true);
@@ -51,6 +53,12 @@ const RootNavigator = () => {
     return unsub;
   }, []);
 
+  // App chalte-chalte admin ne block kiya (API 403 / socket reject) — profile dobara
+  // lao; isBlocked true aate hi "Account blocked" screen khul jaati hai.
+  useEffect(() => onAccountBlocked(() => {
+    getMyProfile().then(p => dispatch(setProfile(p))).catch(() => { /* network — agli baar */ });
+  }), [dispatch]);
+
   if (showSplash) {
     return <SplashScreen onDone={() => setShowSplash(false)} />;
   }
@@ -68,6 +76,8 @@ const RootNavigator = () => {
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
         {(!firebaseUser && !profile) ? (
           <Stack.Screen name="Auth"     component={AuthNavigator} />
+        ) : blocked ? (
+          <Stack.Screen name="Blocked"  component={AccountBlockedScreen} />
         ) : role === 'customer' ? (
           <Stack.Screen name="Customer" component={CustomerNavigator} />
         ) : role === 'rider' ? (

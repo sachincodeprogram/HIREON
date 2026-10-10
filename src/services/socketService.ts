@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import auth from '@react-native-firebase/auth';
 import { SOCKET_URL } from '../constants/api';
-import { getDevPhone } from './apiClient';
+import { getDevPhone, notifyAccountBlocked } from './apiClient';
 
 let socket: Socket | null = null;
 
@@ -46,7 +46,13 @@ export const connectSocket = async (): Promise<Socket> => {
     // Pehla connect ho ya reconnect — jo rooms join thi, sab dobara join karo.
     joinedRooms.forEach((mode, orderId) => socket?.emit(mode, orderId));
   });
-  socket.on('connect_error', () => {
+  socket.on('connect_error', (err) => {
+    // Account block hai — retry loop mat chalao (har 3s server par load), app ko batao
+    if (err?.message === 'Account blocked') {
+      disconnectSocket();
+      notifyAccountBlocked();
+      return;
+    }
     // Server ne handshake reject kiya (jaise expire hua token) — is case me
     // socket.io khud retry NAHI karta (socket.active false). Thodi der baad
     // fresh token ke saath khud dobara connect karo, warna app restart tak
@@ -54,6 +60,10 @@ export const connectSocket = async (): Promise<Socket> => {
     if (socket && !socket.active) {
       setTimeout(() => { if (socket && !socket.connected) socket.connect(); }, 3000);
     }
+  });
+  // Server khud socket tabhi kaatta hai jab admin account block kare — status check karwao
+  socket.on('disconnect', (reason) => {
+    if (reason === 'io server disconnect') notifyAccountBlocked();
   });
   // socket.io 'reconnect' event manager par aata hai; isi par screens ko
   // refetch karwao taaki disconnect ke beech ke updates bhi mil jayen.

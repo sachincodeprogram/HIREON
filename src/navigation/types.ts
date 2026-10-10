@@ -5,6 +5,7 @@ export type RootStackParamList = {
   Auth:     undefined;
   Customer: undefined;
   Rider:    undefined;
+  Blocked:  undefined;
 };
 
 export type AuthStackParamList = {

@@ -59,6 +59,10 @@ export interface UserProfile {
   totalEarnings?: number;
   totalDeliveries?: number;
   rating?: number;
+  // Admin ne block kiya ho to app sirf "Account blocked" screen dikhata hai
+  isBlocked?: boolean;
+  blockReason?: string;
+  blockedAt?: string | null;
   createdAt: string;
 }
 
