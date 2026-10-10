@@ -24,7 +24,9 @@ const userSchema = new mongoose.Schema({
 
   // Admin moderation — complaint aane par account block. Blocked user sirf apni
   // profile (GET /auth/me) dekh sakta hai, baaki sab API/socket band.
-  isBlocked:    { type: Boolean, default: false, index: true },
+  // Index jaan-boojh kar nahi — deploy par live DB me index build na ho. Queries
+  // role/isOnline par filter karti hain, isBlocked sirf extra condition hai.
+  isBlocked:    { type: Boolean, default: false },
   blockedAt:    { type: Date, default: null },
   blockReason:  { type: String, default: '' },
   // Audit trail — kab, kyun block/unblock hua

@@ -1,4 +1,4 @@
-// HIREON backend ke admin endpoints (/api/v1/admin/*) — sirf READ-ONLY calls.
+// HIREON backend ke admin endpoints (/api/v1/admin/*) — read calls + sirf block/unblock write.
 // Admin key kabhi bundle me nahi jaati: login par user type karta hai, sessionStorage me
 // rehti hai (tab band = key gayi).
 

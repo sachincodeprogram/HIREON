@@ -29,19 +29,31 @@ const getStats = async (req, res) => {
   }
 };
 
+// page/limit query ko safe numbers me badlo — limit ki had 1000, taaki ek request
+// live DB se lakhon documents na kheench sake.
+const MAX_LIMIT = 1000;
+const paging = (q) => {
+  const page  = Math.max(parseInt(q.page, 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(q.limit, 10) || 20, 1), MAX_LIMIT);
+  return { page, limit };
+};
+
 // GET /api/v1/admin/orders
 const getAllOrders = async (req, res) => {
   try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const query = status ? { status } : {};
+    const { status } = req.query;
+    const { page, limit } = paging(req.query);
+    const query = status ? { status: String(status) } : {};
     const orders = await Order.find(query)
+      .select('-pickupOtp -deliveryOtp')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(Number(limit))
+      .limit(limit)
       .populate('customer', 'name email phone')
-      .populate('rider', 'name email phone vehicleType vehicleNumber');
+      .populate('rider', 'name email phone vehicleType vehicleNumber')
+      .lean();
     const total = await Order.countDocuments(query);
-    res.json(success('Orders fetched', { orders, total, page: Number(page), pages: Math.ceil(total / limit) }));
+    res.json(success('Orders fetched', { orders, total, page, pages: Math.ceil(total / limit) }));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -50,11 +62,17 @@ const getAllOrders = async (req, res) => {
 // GET /api/v1/admin/users
 const getAllUsers = async (req, res) => {
   try {
-    const { role, page = 1, limit = 20 } = req.query;
-    const query = role ? { role } : {};
-    const users = await User.find(query).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(Number(limit));
+    const { role } = req.query;
+    const { page, limit } = paging(req.query);
+    const query = role ? { role: String(role) } : {};
+    const users = await User.find(query)
+      .select('-fcmToken')
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
     const total = await User.countDocuments(query);
-    res.json(success('Users fetched', { users, total, page: Number(page), pages: Math.ceil(total / limit) }));
+    res.json(success('Users fetched', { users, total, page, pages: Math.ceil(total / limit) }));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -80,18 +98,24 @@ const blockUser = async (req, res) => {
     if (reason.length < 3) return res.status(400).json(error('Please give a reason for blocking (min 3 characters)'));
     if (reason.length > 500) return res.status(400).json(error('Reason is too long (max 500 characters)'));
 
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json(error('User not found'));
-    if (user.deletedAt) return res.status(400).json(error('This account has been deleted'));
-    if (user.isBlocked) return res.status(409).json(error('User is already blocked'));
+    const existing = await User.findById(req.params.id).select('deletedAt isBlocked').lean();
+    if (!existing) return res.status(404).json(error('User not found'));
+    if (existing.deletedAt) return res.status(400).json(error('This account has been deleted'));
+    if (existing.isBlocked) return res.status(409).json(error('User is already blocked'));
 
-    user.isBlocked   = true;
-    user.blockedAt   = new Date();
-    user.blockReason = reason;
-    user.blockHistory.push({ action: 'block', reason, at: user.blockedAt });
-    // Rider ko duty se hatao taaki naye orders na milein
-    if (user.role === 'rider') user.isOnline = false;
-    await user.save();
+    // Atomic update (user.save() nahi) — save() poore document ko validate karta
+    // hai, kisi purane user ka koi field galat ho to block hi fail ho jaata.
+    // isOnline:false = rider duty se hate, naye orders na milein (customer par asar nahi).
+    const at   = new Date();
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, isBlocked: { $ne: true } },
+      {
+        $set:  { isBlocked: true, blockedAt: at, blockReason: reason, isOnline: false },
+        $push: { blockHistory: { action: 'block', reason, at } },
+      },
+      { new: true, projection: { fcmToken: 0 } },
+    ).lean();
+    if (!user) return res.status(409).json(error('User is already blocked'));
 
     disconnectUser(req.io, req.onlineRiders, user._id);
 
@@ -113,15 +137,19 @@ const unblockUser = async (req, res) => {
     if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json(error('Invalid user id'));
     const reason = String(req.body?.reason || '').trim().slice(0, 500);
 
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json(error('User not found'));
-    if (!user.isBlocked) return res.status(409).json(error('User is not blocked'));
+    const existing = await User.findById(req.params.id).select('isBlocked').lean();
+    if (!existing) return res.status(404).json(error('User not found'));
+    if (!existing.isBlocked) return res.status(409).json(error('User is not blocked'));
 
-    user.isBlocked   = false;
-    user.blockedAt   = null;
-    user.blockReason = '';
-    user.blockHistory.push({ action: 'unblock', reason, at: new Date() });
-    await user.save();
+    const user = await User.findOneAndUpdate(
+      { _id: req.params.id, isBlocked: true },
+      {
+        $set:  { isBlocked: false, blockedAt: null, blockReason: '' },
+        $push: { blockHistory: { action: 'unblock', reason, at: new Date() } },
+      },
+      { new: true, projection: { fcmToken: 0 } },
+    ).lean();
+    if (!user) return res.status(409).json(error('User is not blocked'));
 
     console.log(`[admin] UNBLOCK user=${user._id} role=${user.role} reason="${reason}"`);
     res.json(success('User unblocked', { user }));
