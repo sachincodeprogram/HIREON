@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useData } from '../data'
 import { money, orderFare } from '../format'
 import { Avatar, StatusBadge } from './ui'
-import { IconBox, IconMap, IconChart, IconDashboard, IconSearch, IconServer, IconUsers, IconBike } from './icons'
+import { IconActivity, IconBox, IconMap, IconChart, IconDashboard, IconSearch, IconServer, IconUsers, IconBike } from './icons'
 
 interface Item { id: string; group: string; icon: ReactNode; title: ReactNode; sub?: ReactNode; right?: ReactNode; run: () => void }
 
@@ -21,6 +21,7 @@ export default function CommandPalette({ open, onClose }: { open: boolean; onClo
     const n = q.trim().toLowerCase()
     const pages: Item[] = [
       { id: 'p-dash', group: 'Pages', icon: <IconDashboard />, title: 'Dashboard', run: () => nav('/') },
+      { id: 'p-activity', group: 'Pages', icon: <IconActivity />, title: 'Live activity', run: () => nav('/activity') },
       { id: 'p-live', group: 'Pages', icon: <IconMap />, title: 'Live tracking', run: () => nav('/live') },
       { id: 'p-orders', group: 'Pages', icon: <IconBox />, title: 'Orders', run: () => nav('/orders') },
       { id: 'p-riders', group: 'Pages', icon: <IconBike />, title: 'Riders', run: () => nav('/riders') },

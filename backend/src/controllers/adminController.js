@@ -3,6 +3,7 @@ const User          = require('../models/User');
 const Order         = require('../models/Order');
 const RiderLocation = require('../models/RiderLocation');
 const { success, error } = require('../utils/apiResponse');
+const { getActivitySince } = require('../utils/activityLog');
 
 // GET /api/v1/admin/stats
 const getStats = async (req, res) => {
@@ -197,4 +198,62 @@ const getLive = async (req, res) => {
   }
 };
 
-module.exports = { getStats, getAllOrders, getAllUsers, blockUser, unblockUser, getLive };
+// GET /api/v1/admin/activity?since=<ISO>&limit=<n>
+// Live Activity feed — order timeline, naye signup, block/unblock aur rider online/offline
+// ko ek list me jodo (naya sabse upar). Sirf padhta hai; DB me kuch nahi likhta.
+const ACTIVITY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const getActivity = async (req, res) => {
+  try {
+    const now   = Date.now();
+    const asked = req.query.since ? new Date(String(req.query.since)) : null;
+    // since na ho / galat ho / bahut purana ho to pichhle 24 ghante; 7 din se zyada peeche nahi
+    let since = asked && !isNaN(asked) ? asked : new Date(now - 24 * 60 * 60 * 1000);
+    if (since.getTime() < now - ACTIVITY_WINDOW_MS) since = new Date(now - ACTIVITY_WINDOW_MS);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 300);
+
+    const [orders, signups, moderated] = await Promise.all([
+      Order.find({ updatedAt: { $gte: since } })
+        .select('orderId status timeline fare paymentMethod cancelledBy pickup.address delivery.address customer rider')
+        .sort({ updatedAt: -1 })
+        .limit(300)
+        .populate('customer', 'name')
+        .populate('rider', 'name')
+        .lean(),
+      User.find({ createdAt: { $gte: since } }).select('name role createdAt').sort({ createdAt: -1 }).limit(limit).lean(),
+      User.find({ 'blockHistory.at': { $gte: since } }).select('name role blockHistory').limit(limit).lean(),
+    ]);
+
+    const events = [];
+    for (const o of orders) {
+      const order = {
+        _id: o._id, orderId: o.orderId, status: o.status, fare: o.fare, paymentMethod: o.paymentMethod,
+        pickup: o.pickup?.address || '', delivery: o.delivery?.address || '',
+        customer: o.customer ? { _id: o.customer._id, name: o.customer.name } : null,
+        rider: o.rider ? { _id: o.rider._id, name: o.rider.name } : null,
+      };
+      (o.timeline || []).forEach((t, i) => {
+        if (!t.timestamp || t.timestamp < since) return;
+        events.push({ id: `o:${o._id}:${i}`, type: 'order', status: t.status, note: t.note || '', at: t.timestamp, order });
+      });
+    }
+    for (const u of signups) {
+      events.push({ id: `s:${u._id}`, type: 'signup', at: u.createdAt, user: { _id: u._id, name: u.name, role: u.role } });
+    }
+    for (const u of moderated) {
+      (u.blockHistory || []).forEach((b, i) => {
+        if (!b.at || b.at < since) return;
+        events.push({ id: `b:${u._id}:${i}`, type: b.action, reason: b.reason || '', at: b.at, user: { _id: u._id, name: u.name, role: u.role } });
+      });
+    }
+    getActivitySince(since).forEach((e) => {
+      events.push({ id: `m:${e.type}:${e.user?._id}:${e.at.getTime()}`, ...e });
+    });
+
+    events.sort((a, b) => new Date(b.at) - new Date(a.at));
+    res.json(success('Activity', { serverTime: new Date(now), since, events: events.slice(0, limit) }));
+  } catch (err) {
+    res.status(500).json(error(err.message));
+  }
+};
+
+module.exports = { getStats, getAllOrders, getAllUsers, blockUser, unblockUser, getLive, getActivity };

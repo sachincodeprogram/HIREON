@@ -150,6 +150,31 @@ export interface LiveRider {
 
 export interface LiveData { serverTime: string; orders: Order[]; riders: LiveRider[] }
 
+export interface ActivityRef { _id: string; name: string; role?: 'customer' | 'rider' }
+
+export interface ActivityEvent {
+  id: string
+  type: 'order' | 'signup' | 'block' | 'unblock' | 'rider_online' | 'rider_offline'
+  at: string
+  status?: string
+  note?: string
+  reason?: string
+  user?: ActivityRef
+  order?: {
+    _id: string
+    orderId: string
+    status: OrderStatus
+    fare: { estimated: number; final: number }
+    paymentMethod?: 'COD' | 'ONLINE'
+    pickup: string
+    delivery: string
+    customer: ActivityRef | null
+    rider: ActivityRef | null
+  }
+}
+
+export interface ActivityData { serverTime: string; since: string; events: ActivityEvent[] }
+
 export const api = {
   stats: (key?: string) => get<Stats>('/stats', {}, key),
 
@@ -164,6 +189,8 @@ export const api = {
   },
 
   live: () => get<LiveData>('/live'),
+
+  activity: (since?: string) => get<ActivityData>('/activity', { since, limit: 200 }),
 
   blockUser: (id: string, reason: string) =>
     request<{ user: User; activeOrders: number }>('PATCH', '/users/' + encodeURIComponent(id) + '/block', { body: { reason } }),

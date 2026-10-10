@@ -8,7 +8,7 @@ import CommandPalette from './CommandPalette'
 import OrderDrawer from '../pages/OrderDrawer'
 import UserDrawer from '../pages/UserDrawer'
 import {
-  IconBike, IconBox, IconChart, IconMap, IconDashboard, IconLogout, IconMenu, IconMoon, IconRefresh,
+  IconActivity, IconBike, IconBox, IconChart, IconMap, IconDashboard, IconLogout, IconMenu, IconMoon, IconRefresh,
   IconSearch, IconServer, IconSun, IconUsers,
 } from './icons'
 
@@ -20,6 +20,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
     { to: '/analytics', label: 'Analytics', icon: IconChart },
   ] },
   { title: 'Operations', items: [
+    { to: '/activity', label: 'Live activity', icon: IconActivity },
     { to: '/live', label: 'Live tracking', icon: IconMap, badge: 'active' },
     { to: '/orders', label: 'Orders', icon: IconBox },
   ] },

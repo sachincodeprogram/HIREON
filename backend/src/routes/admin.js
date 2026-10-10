@@ -19,6 +19,7 @@ router.get('/stats',  adminKey, ctrl.getStats);
 router.get('/orders', adminKey, ctrl.getAllOrders);
 router.get('/users',  adminKey, ctrl.getAllUsers);
 router.get('/live',   adminKey, ctrl.getLive);
+router.get('/activity', adminKey, ctrl.getActivity);
 
 router.patch('/users/:id/block',   adminKey, ctrl.blockUser);
 router.patch('/users/:id/unblock', adminKey, ctrl.unblockUser);

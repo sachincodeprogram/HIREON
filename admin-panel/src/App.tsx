@@ -9,6 +9,7 @@ import Users from './pages/Users'
 import Analytics from './pages/Analytics'
 import System from './pages/System'
 import Live from './pages/Live'
+import Activity from './pages/Activity'
 import { ToastProvider } from './toast'
 
 function Gate() {
@@ -21,6 +22,7 @@ function Gate() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="activity" element={<Activity />} />
             <Route path="live" element={<Live />} />
             <Route path="orders" element={<Orders />} />
             <Route path="riders" element={<Users role="rider" key="rider" />} />

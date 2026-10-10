@@ -2,12 +2,14 @@ const User          = require('../models/User');
 const RiderLocation = require('../models/RiderLocation');
 const Order         = require('../models/Order');
 const { success, error } = require('../utils/apiResponse');
+const { logActivity }    = require('../utils/activityLog');
 
 // PUT /api/v1/rider/status
 const setOnlineStatus = async (req, res) => {
   try {
     const { isOnline } = req.body;
     const rider = await User.findByIdAndUpdate(req.user._id, { isOnline }, { new: true });
+    logActivity({ type: rider.isOnline ? 'rider_online' : 'rider_offline', user: { _id: rider._id, name: rider.name, role: 'rider' } });
     res.json(success(`You are now ${isOnline ? 'online' : 'offline'}`, { isOnline: rider.isOnline }));
   } catch (err) {
     res.status(500).json(error(err.message));
