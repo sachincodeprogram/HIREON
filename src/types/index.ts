@@ -87,6 +87,9 @@ export interface Order {
   /** Customer ki 1-5 star rating (delivery ke baad); 0/undefined = abhi nahi di */
   rating?: number;
   review?: string;
+  /** Cancel hone par kisne kiya — rider ko sahi message dikhane ke liye */
+  cancelledBy?: 'customer' | 'rider' | 'admin' | '';
+  cancellationNote?: string;
   createdAt: string;
   updatedAt: string;
 }

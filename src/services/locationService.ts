@@ -2,6 +2,7 @@ import { Platform, PermissionsAndroid, Alert, Linking } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { GOOGLE_MAPS_API_KEY } from '../constants/api';
 import { Coordinates } from '../types';
+import { translate as t } from '../i18n';
 
 export type LocationResult = {
   coordinates: Coordinates;
@@ -250,17 +251,17 @@ export async function getCurrentLocation(): Promise<LocationResult> {
   const status = await requestLocationPermission();
   if (status === 'blocked') {
     Alert.alert(
-      'Location Block Hai',
-      'Settings mein jaake Location permission enable karo.',
+      t('loc.blocked'),
+      t('loc.blockedMsg'),
       [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Settings Kholo', onPress: () => Linking.openSettings() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.openSettings'), onPress: () => Linking.openSettings() },
       ],
     );
     throw new Error('PERMISSION_BLOCKED');
   }
   if (status !== 'granted') {
-    Alert.alert('Permission Denied', 'Location permission nahi mili. Please allow karo.');
+    Alert.alert(t('loc.denied'), t('loc.deniedMsg'));
     throw new Error('PERMISSION_DENIED');
   }
   try {
@@ -268,11 +269,11 @@ export async function getCurrentLocation(): Promise<LocationResult> {
     return reverseGeocode(coords);
   } catch (err: any) {
     if (err.message === 'GPS_OFF') {
-      Alert.alert('GPS Band Hai', 'Phone ka GPS/Location on karo aur dobara try karo.');
+      Alert.alert(t('loc.gpsOff'), t('loc.gpsOffMsg'));
     } else if (err.message === 'GPS_TIMEOUT') {
-      Alert.alert('Location Nahi Mili', 'GPS signal slow hai. Bahar jaake dobara try karo ya address manually type karo.');
+      Alert.alert(t('loc.notFound'), t('loc.gpsSlow'));
     } else {
-      Alert.alert('Error', 'Location nahi mil rahi. Manually address type karo.');
+      Alert.alert(t('common.error'), t('loc.genericFail'));
     }
     throw err;
   }

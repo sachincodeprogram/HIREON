@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   RefreshControl, Switch, Alert, ActivityIndicator,
-  StatusBar, Modal, Vibration, Animated, Easing, Dimensions, AppState,
+  StatusBar, Modal, Vibration, Animated, Easing, Dimensions, AppState, ToastAndroid, Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, Rect, Circle } from 'react-native-svg';
@@ -19,7 +19,9 @@ import useAppSelector from '../../hooks/useAppSelector';
 import { setOnlineStatus } from '../../store/slices/riderSlice';
 import { setActiveOrder } from '../../store/slices/orderSlice';
 import { getMyOrders, acceptOrder, declineOrder, getOrderById } from '../../services/orderService';
-import { connectSocket, getSocket } from '../../services/socketService';
+import { connectSocket, getSocket, joinOrderRoom, leaveOrderRoom } from '../../services/socketService';
+import { notifyOrderCancelled, wasCancelAlerted, clearCancelNotification } from '../../services/orderCancelNotification';
+import OrderCancelledOverlay from '../../components/common/OrderCancelledOverlay';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { EventType } from '@notifee/react-native';
 import { registerRiderPush, subscribePushTokenRefresh } from '../../services/pushService';
@@ -30,6 +32,7 @@ import { getRingtoneById, DEFAULT_RINGTONE_ID } from '../../constants/ringtones'
 import apiClient from '../../services/apiClient';
 import { Order, Coordinates } from '../../types';
 import { formatCurrency, formatDistance, truncateAddress } from '../../utils/formatters';
+import { translate, useTranslation } from '../../i18n';
 import Sound from 'react-native-sound';
 
 Sound.setCategory('Playback');
@@ -60,6 +63,7 @@ const HeaderBg = () => (
 
 const RiderDashboard = () => {
   const dispatch   = useAppDispatch();
+  const { t }      = useTranslation();
   const profile    = useAppSelector(s => s.auth.profile);
   const isOnline   = useAppSelector(s => s.rider.isOnline);
   const navigation = useNavigation<NativeStackNavigationProp<RiderStackParamList>>();
@@ -76,12 +80,15 @@ const RiderDashboard = () => {
   const [riderPos,       setRiderPos]       = useState<Coordinates | null>(null);
   // Rider ka chalu order (accepted/picked_up/in_transit) — home par pending list ki jagah yahi dikhta hai.
   const [currentOrder,   setCurrentOrder]   = useState<Order | null>(null);
+  const [cancelledOrder, setCancelledOrder] = useState<Order | null>(null);
   // Aaj ki snapshot (kamai/deliveries/rating) home par.
   const [today,          setToday]          = useState<{ amount: number; count: number } | null>(null);
   const [rating,         setRating]         = useState<number>(5);
 
   // New order ring modal
   const [ringOrder,      setRingOrder]      = useState<Order | null>(null);
+  const ringOrderRef = useRef<Order | null>(null);
+  ringOrderRef.current = ringOrder;
   const [routeDistance,  setRouteDistance]  = useState<number | null>(null);
   const [routeDuration,  setRouteDuration]  = useState<number | null>(null);
   // OSRM route polylines for the ring-modal mini map (Directions API is disabled)
@@ -255,8 +262,8 @@ const RiderDashboard = () => {
         // Bina location ke bhi order milenge (backend fallback), par rider ko
         // batao — warna use pata hi nahi chalta ki GPS share nahi ho raha.
         Alert.alert(
-          'Location Chahiye 📍',
-          'Location permission ke bina aapki live location customer ko nahi dikhegi. Settings me jaake location allow karein.',
+          translate('rider.locationNeeded'),
+          translate('rider.locationNeededMsg'),
         );
         return;
       }
@@ -348,7 +355,7 @@ const RiderDashboard = () => {
           else ringForOrder(order);
         } else {
           cancelOrderRing(orderId);
-          Alert.alert('Order Gaya', 'Yeh order kisi aur rider ne le liya ya cancel ho gaya.');
+          Alert.alert(translate('rider.orderGone'), translate('rider.orderGoneMsg'));
         }
       } catch { /* order fetch fail — chup raho */ }
     };
@@ -411,13 +418,77 @@ const RiderDashboard = () => {
   // Chalu order load karo — mount par aur jab dashboard wapas focus me aaye (delivery se laut ke).
   useFocusEffect(useCallback(() => { loadCurrent(); }, [loadCurrent]));
 
+  // Ring baj rahi thi aur order cancel ho gaya / kisi aur rider ne le liya —
+  // ring turant band karo (pehle 90s bajti rehti thi). Socket aur foreground
+  // FCM dono raste yahi use karte hain; baar-baar aaye to bhi safe.
+  const withdrawRing = useCallback((orderId?: string, reason?: string) => {
+    if (!orderId) return;
+    cancelOrderRing(orderId);
+    if (ringOrderRef.current?._id !== orderId) return;
+    stopRing();
+    Vibration.cancel();
+    setRingOrder(null);
+    const msg = reason === 'cancelled' ? translate('withdraw.cancelled') : translate('withdraw.taken');
+    if (Platform.OS === 'android') ToastAndroid.show(msg, ToastAndroid.LONG);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    const onWithdrawn = (p: { orderId?: string; reason?: string }) => {
+      if (mounted) withdrawRing(p?.orderId, p?.reason);
+    };
+    connectSocket().then(s => { if (mounted) s.on('order_request_withdrawn', onWithdrawn); }).catch(() => {});
+    const unsubMsg = messaging().onMessage(async m => {
+      if (m.data?.type === 'order_withdrawn') {
+        withdrawRing(m.data.orderId as string, m.data.reason as string);
+      }
+    });
+    return () => {
+      mounted = false;
+      unsubMsg();
+      getSocket()?.off('order_request_withdrawn', onWithdrawn);
+    };
+  }, [withdrawRing]);
+
+  // Chalu order ka room join rakho — rider home par ho aur customer cancel kar
+  // de to card turant hatao aur live "Order Cancelled" card dikhao. Agar
+  // ActiveDelivery/Navigation upar khuli hai to wahi screen alert dikhati hai.
+  const currentOrderId = currentOrder?._id;
+  useEffect(() => {
+    if (!currentOrderId) return;
+    let mounted = true;
+    const onUpdate = (update: { status?: Order['status'] }) => {
+      if (update?.status !== 'cancelled') return;
+      getOrderById(currentOrderId).then(o => {
+        if (!mounted || o.status !== 'cancelled') return;
+        setCurrentOrder(null);
+        dispatch(setActiveOrder(null));
+        leaveOrderRoom(currentOrderId);
+        if (navigation.isFocused() && !wasCancelAlerted(currentOrderId)) {
+          setCancelledOrder(o);
+          notifyOrderCancelled(currentOrderId, o.orderId);
+        }
+      }).catch(() => {});
+    };
+    connectSocket().then(s => {
+      if (!mounted) return;
+      joinOrderRoom(currentOrderId);
+      s.on('order_update', onUpdate);
+    }).catch(() => {});
+    return () => {
+      mounted = false;
+      getSocket()?.off('order_update', onUpdate);
+    };
+  }, [currentOrderId, dispatch, navigation]);
+
   const toggleOnline = async (value: boolean) => {
     try {
       setTogglingOnline(true);
       await apiClient.put('/rider/status', { isOnline: value });
       dispatch(setOnlineStatus(value));
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(translate('common.error'), e.message);
     } finally {
       setTogglingOnline(false);
     }
@@ -434,18 +505,18 @@ const RiderDashboard = () => {
       setRingOrder(null);
       navigation.navigate('ActiveDelivery', { orderId: accepted._id });
     } catch (e: any) {
-      const message = e.message || 'Yeh order ab available nahi hai.';
+      const message = e.message || translate('rider.orderUnavailable');
       // Backend wallet floor se neeche COD accept reject karta hai (order
       // "kisi aur ne le liya" wala generic error nahi) — is case me rider ko
       // seedha Wallet screen par recharge karne ka rasta do.
       if (/wallet recharge/i.test(message)) {
-        Alert.alert('Wallet Recharge Chahiye', message, [
-          { text: 'Baad Me', style: 'cancel' },
-          { text: 'Wallet Recharge Karo', onPress: () => navigation.navigate('Wallet') },
+        Alert.alert(translate('rider.rechargeNeeded'), message, [
+          { text: translate('common.later'), style: 'cancel' },
+          { text: translate('rider.rechargeNow'), onPress: () => navigation.navigate('Wallet') },
         ]);
       } else {
         // Order kisi aur rider ne le liya / cancel ho gaya — bata do.
-        Alert.alert('Order Gaya', message);
+        Alert.alert(translate('rider.orderGone'), message);
       }
       setRingOrder(null);
     } finally {
@@ -462,13 +533,13 @@ const RiderDashboard = () => {
     declineOrder(orderId).catch(() => {});
   };
 
-  const firstName = profile?.name?.split(' ')[0] || 'Rider';
+  const firstName = profile?.name?.split(' ')[0] || t('role.rider');
 
   // Home page par dikhne wala chalu-order card (pending list ki jagah).
   const renderCurrentOrder = () => {
     if (!currentOrder) return null;
-    const statusLabel = currentOrder.status === 'accepted' ? 'Pickup pe jao'
-      : currentOrder.status === 'picked_up' ? 'Delivery pe jao' : 'Chalu hai';
+    const statusLabel = currentOrder.status === 'accepted' ? t('rider.goPickup')
+      : currentOrder.status === 'picked_up' ? t('rider.goDelivery') : t('rider.inProgress');
     return (
       <TouchableOpacity
         style={styles.currentCard}
@@ -476,7 +547,7 @@ const RiderDashboard = () => {
         onPress={() => navigation.navigate('ActiveDelivery', { orderId: currentOrder._id })}>
         <View style={styles.currentTop}>
           <View style={styles.currentBadge}>
-            <Text style={styles.currentBadgeText}>📦 Chalu Delivery</Text>
+            <Text style={styles.currentBadgeText}>📦 {t('rider.currentDelivery')}</Text>
           </View>
           <Text style={styles.currentStatus}>{statusLabel}</Text>
         </View>
@@ -495,7 +566,7 @@ const RiderDashboard = () => {
         <View style={styles.currentBottom}>
           <Text style={styles.earningPillText}>+{formatCurrency(currentOrder.riderEarning || 0)}</Text>
           <View style={styles.resumeBtn}>
-            <Text style={styles.resumeBtnText}>Resume →</Text>
+            <Text style={styles.resumeBtnText}>{t('rider.resume')} →</Text>
           </View>
         </View>
       </TouchableOpacity>
@@ -527,8 +598,8 @@ const RiderDashboard = () => {
           <View style={{ paddingTop: headerTopPad }}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.greeting}>Hey, {firstName} 👋</Text>
-                <Text style={styles.subGreeting}>Ready to deliver today?</Text>
+                <Text style={styles.greeting}>{t('rider.hey', { name: firstName })} 👋</Text>
+                <Text style={styles.subGreeting}>{t('rider.readyToday')}</Text>
               </View>
               <TouchableOpacity
                 style={styles.walletBtn}
@@ -548,8 +619,8 @@ const RiderDashboard = () => {
           <View style={[styles.onlineCard, isOnline ? styles.onlineCardActive : styles.onlineCardInactive]}>
             <View style={[styles.statusDot, { backgroundColor: isOnline ? COLORS.online : COLORS.offline }]} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.onlineLabel}>{isOnline ? 'You are Online' : 'You are Offline'}</Text>
-              <Text style={styles.onlineSub}>{isOnline ? 'Receiving delivery requests' : 'Go online to earn money'}</Text>
+              <Text style={styles.onlineLabel}>{isOnline ? t('rider.youOnline') : t('rider.youOffline')}</Text>
+              <Text style={styles.onlineSub}>{isOnline ? t('rider.receiving') : t('rider.goOnline')}</Text>
             </View>
             {togglingOnline
               ? <ActivityIndicator color={COLORS.secondary} size="small" />
@@ -562,11 +633,11 @@ const RiderDashboard = () => {
         {isOnline && (
           <View style={styles.statsRow}>
             {[
-              { icon: '💰', value: formatCurrency(today?.amount || 0), label: 'Aaj ki kamai', tint: COLORS.success },
-              { icon: '📦', value: String(today?.count || 0),          label: 'Deliveries',   tint: COLORS.secondary },
-              { icon: '⭐', value: rating.toFixed(1),                  label: 'Rating',       tint: COLORS.warning },
+              { key: 'earn', icon: '💰', value: formatCurrency(today?.amount || 0), label: t('rider.todayEarning'), tint: COLORS.success },
+              { key: 'count', icon: '📦', value: String(today?.count || 0),          label: t('rider.deliveries'),   tint: COLORS.secondary },
+              { key: 'rating', icon: '⭐', value: rating.toFixed(1),                  label: t('rider.rating'),       tint: COLORS.warning },
             ].map(s => (
-              <View key={s.label} style={styles.statBox}>
+              <View key={s.key} style={styles.statBox}>
                 <View style={[styles.statIconChip, { backgroundColor: s.tint + '16' }]}>
                   <Text style={styles.statIcon}>{s.icon}</Text>
                 </View>
@@ -584,14 +655,14 @@ const RiderDashboard = () => {
           ) : isOnline ? (
             <View style={styles.emptyWrap}>
               <View style={styles.emptyIconChip}><Text style={styles.emptyIcon}>🔍</Text></View>
-              <Text style={styles.emptyTitle}>Orders ka wait kar rahe hain…</Text>
-              <Text style={styles.emptySub}>Naya order aate hi screen par ring bajegi aur popup dikhega</Text>
+              <Text style={styles.emptyTitle}>{t('rider.waiting')}</Text>
+              <Text style={styles.emptySub}>{t('rider.waitingSub')}</Text>
             </View>
           ) : (
             <View style={styles.offlineWrap}>
               <View style={styles.offlineIconBox}><Text style={styles.offlineIcon}>😴</Text></View>
-              <Text style={styles.offlineTitle}>You're Offline</Text>
-              <Text style={styles.offlineSub}>Switch on karo aur delivery requests lena shuru karo</Text>
+              <Text style={styles.offlineTitle}>{t('rider.offlineTitle')}</Text>
+              <Text style={styles.offlineSub}>{t('rider.offlineSub')}</Text>
             </View>
           )}
         </View>
@@ -608,7 +679,7 @@ const RiderDashboard = () => {
             {/* Header */}
             <View style={styles.modalHeader}>
               <Text style={styles.modalRingIcon}>🔔</Text>
-              <Text style={styles.modalTitle}>Naya Order!</Text>
+              <Text style={styles.modalTitle}>{t('rider.newOrder')}</Text>
               <Text style={styles.modalSub}># {ringOrder?.orderId}</Text>
             </View>
 
@@ -651,16 +722,16 @@ const RiderDashboard = () => {
                     />
                   )}
 
-                  {riderLatLng && <Marker coordinate={riderLatLng} title="Aap"><View style={styles.riderDot} /></Marker>}
-                  <Marker coordinate={ringPickupLatLng} title="Pickup" pinColor="green" />
-                  <Marker coordinate={ringDeliveryLatLng} title="Delivery" pinColor={COLORS.primary} />
+                  {riderLatLng && <Marker coordinate={riderLatLng} title={t('map.you')}><View style={styles.riderDot} /></Marker>}
+                  <Marker coordinate={ringPickupLatLng} title={t('map.pickup')} pinColor="green" />
+                  <Marker coordinate={ringDeliveryLatLng} title={t('map.delivery')} pinColor={COLORS.primary} />
                 </MapView>
 
                 {/* Route chips on map */}
                 <View style={styles.mapChips}>
                   {routeDistance !== null && (
                     <View style={styles.mapChip}>
-                      <Text style={styles.mapChipTxt}>📍 {routeDistance.toFixed(1)} km door</Text>
+                      <Text style={styles.mapChipTxt}>📍 {t('rider.kmAway', { km: routeDistance.toFixed(1) })}</Text>
                     </View>
                   )}
                   {routeDuration !== null && (
@@ -691,15 +762,15 @@ const RiderDashboard = () => {
 
                 <View style={styles.modalMetaRow}>
                   <View style={styles.modalMetaBox}>
-                    <Text style={styles.modalMetaLabel}>Earning</Text>
+                    <Text style={styles.modalMetaLabel}>{t('rider.earning')}</Text>
                     <Text style={styles.modalMetaValue}>{formatCurrency(ringOrder.riderEarning || 0)}</Text>
                   </View>
                   <View style={styles.modalMetaBox}>
-                    <Text style={styles.modalMetaLabel}>Parcel Dist.</Text>
+                    <Text style={styles.modalMetaLabel}>{t('rider.parcelDist')}</Text>
                     <Text style={styles.modalMetaValue}>{formatDistance(ringOrder.fare?.distance || 0)}</Text>
                   </View>
                   <View style={styles.modalMetaBox}>
-                    <Text style={styles.modalMetaLabel}>Customer</Text>
+                    <Text style={styles.modalMetaLabel}>{t('role.customer')}</Text>
                     <Text style={styles.modalMetaValue}>{formatCurrency(ringOrder.fare?.estimated || 0)}</Text>
                   </View>
                 </View>
@@ -712,7 +783,7 @@ const RiderDashboard = () => {
                 <View style={styles.ringTimerTrack}>
                   <Animated.View style={[styles.ringTimerFill, { width: ringProgressWidth }]} />
                 </View>
-                <Text style={styles.ringTimerText}>Jaldi karo — yeh order aas-paas ke aur riders ko bhi ja raha hai</Text>
+                <Text style={styles.ringTimerText}>{t('rider.hurry')}</Text>
               </View>
             )}
 
@@ -723,7 +794,7 @@ const RiderDashboard = () => {
                   style={styles.declineBtn}
                   onPress={() => handleDecline(ringOrder._id)}
                   activeOpacity={0.8}>
-                  <Text style={styles.declineBtnText}>✕ Decline</Text>
+                  <Text style={styles.declineBtnText}>✕ {t('rider.decline')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.acceptBtn}
@@ -731,7 +802,7 @@ const RiderDashboard = () => {
                   activeOpacity={0.85}>
                   {accepting === ringOrder._id
                     ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.acceptBtnText}>✓ Accept Order</Text>}
+                    : <Text style={styles.acceptBtnText}>✓ {t('rider.acceptOrder')}</Text>}
                 </TouchableOpacity>
               </View>
             )}
@@ -739,6 +810,12 @@ const RiderDashboard = () => {
           </SafeAreaView>
         </View>
       </Modal>
+
+      <OrderCancelledOverlay
+        visible={!!cancelledOrder}
+        order={cancelledOrder}
+        onClose={() => { clearCancelNotification(cancelledOrder?._id); setCancelledOrder(null); }}
+      />
     </View>
   );
 };

@@ -2,13 +2,16 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { STATUS_COLORS, STATUS_LABELS } from '../../constants/api';
 import { OrderStatus } from '../../types';
+import { TranslationKey, useTranslation } from '../../i18n';
 
 const StatusBadge: React.FC<{ status: OrderStatus }> = ({ status }) => {
   const color = STATUS_COLORS[status] || '#64748B';
+  const { t } = useTranslation();
+  const label = STATUS_LABELS[status] ? t(`status.${status}` as TranslationKey) : status;
   return (
     <View style={[styles.badge, { backgroundColor: color + '18', borderColor: color + '40' }]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
-      <Text style={[styles.text, { color }]}>{STATUS_LABELS[status] || status}</Text>
+      <Text style={[styles.text, { color }]}>{label}</Text>
     </View>
   );
 };

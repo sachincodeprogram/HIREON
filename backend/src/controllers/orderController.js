@@ -3,8 +3,8 @@ const Order          = require('../models/Order');
 const User           = require('../models/User');
 const RiderLocation  = require('../models/RiderLocation');
 const { calculateFare, haversineKm } = require('../utils/fareCalculator');
-const { dispatchOrder, cancelDispatch, registerDecline } = require('../utils/dispatch');
-const { sendAddressChangePush } = require('../utils/push');
+const { dispatchOrder, withdrawDispatch, registerDecline } = require('../utils/dispatch');
+const { sendAddressChangePush, sendCancelPush } = require('../utils/push');
 const { success, error } = require('../utils/apiResponse');
 const { getOrCreateWallet, creditWallet, debitWallet } = require('../utils/wallet');
 const { splitFareForCommission, walletMinBalancePaise } = require('../utils/commission');
@@ -269,7 +269,9 @@ const acceptOrder = async (req, res) => {
     order.status = 'accepted';
     order.timeline.push({ status: 'accepted', note: 'Rider accepted the order' });
     await order.save();
-    cancelDispatch(order._id); // accept ho gaya — baaki tiers ko ring mat karo
+    // accept ho gaya — baaki tiers ko ring mat karo, aur jin riders ki ring
+    // abhi baj rahi hai unki turant band karo.
+    withdrawDispatch(order._id, 'taken', req.user._id);
 
     await order.populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
 
@@ -511,9 +513,25 @@ const cancelOrder = async (req, res) => {
     order.cancellationNote = note;
     order.timeline.push({ status: 'cancelled', note: note || 'Order cancelled' });
     await order.save();
-    cancelDispatch(order._id); // cancel ho gaya — dispatch rok do
+    // cancel ho gaya — dispatch roko aur jin riders ki ring baj rahi hai band karo
+    withdrawDispatch(order._id, 'cancelled');
 
     req.io?.to(order._id.toString()).emit('order_update', { status: 'cancelled' });
+
+    // Assigned rider ko FCM push bhi — app band/background ho to socket event
+    // nahi milta. Rider ne khud cancel kiya ho to push ki zaroorat nahi.
+    // Fire-and-forget: push fail ho to bhi cancel response par asar nahi.
+    if (order.rider && req.user.role !== 'rider') {
+      User.findById(order.rider).select('fcmToken').then(rider => {
+        if (!rider?.fcmToken) return;
+        sendCancelPush(rider.fcmToken, order).then(result => {
+          if (result === 'invalid-token') {
+            User.updateOne({ _id: order.rider }, { fcmToken: '' }).catch(() => {});
+          }
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
     res.json(success('Order cancelled', order));
   } catch (err) {
     res.status(500).json(error(err.message));

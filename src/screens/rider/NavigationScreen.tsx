@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
@@ -10,10 +10,16 @@ import Tts from 'react-native-tts';
 import { RiderStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
 import { requestLocationPermission, getCurrentPosition } from '../../services/locationService';
-import { connectSocket, joinOrderRoom, emitRiderLocation } from '../../services/socketService';
+import { connectSocket, getSocket, joinOrderRoom, leaveOrderRoom, emitRiderLocation } from '../../services/socketService';
+import { getOrderById } from '../../services/orderService';
+import { notifyOrderCancelled, clearCancelNotification } from '../../services/orderCancelNotification';
+import OrderCancelledOverlay from '../../components/common/OrderCancelledOverlay';
+import { useAppDispatch } from '../../hooks/useAppDispatch';
+import { setActiveOrder } from '../../store/slices/orderSlice';
 import apiClient from '../../services/apiClient';
 import { fetchRoute, RouteStep as NavStep, LatLng } from '../../services/routeService';
-import { Coordinates } from '../../types';
+import { Coordinates, Order } from '../../types';
+import { useTranslation } from '../../i18n';
 
 type Route = RouteProp<RiderStackParamList, 'Navigation'>;
 
@@ -83,7 +89,12 @@ const etaClock = (s: number) => {
 const NavigationScreen = () => {
   const route      = useRoute<Route>();
   const navigation = useNavigation<any>();
+  const { t }      = useTranslation();
+  const dispatch   = useAppDispatch();
   const { orderId, destination, label, destinationAddress } = route.params;
+  // Navigation ke beech customer ne cancel kiya to yahin live card dikhao.
+  const [cancelledOrder, setCancelledOrder] = useState<Order | null>(null);
+  const cancelledRef = useRef(false);
 
   const destRef = useRef<Coordinates>({ lat: destination.lat, lng: destination.lng });
   const dest = destRef.current;
@@ -255,6 +266,7 @@ const NavigationScreen = () => {
       }
 
       try { await connectSocket(); joinOrderRoom(orderId); } catch { /* tracking optional */ }
+      if (!mounted || cancelledRef.current) return; // cancel ho chuka — GPS mat chalao
 
       watchId.current = Geolocation.watchPosition(
         pos => onPosition(
@@ -274,6 +286,48 @@ const NavigationScreen = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Customer cancel kare to navigation turant roko — GPS, voice aur location
+  // stream band, aur rider ko live "Order Cancelled" card dikhao.
+  useEffect(() => {
+    let mounted = true;
+    const stopForCancel = (o: Order) => {
+      if (!mounted || cancelledRef.current) return;
+      cancelledRef.current = true;
+      if (watchId.current !== null) { Geolocation.clearWatch(watchId.current); watchId.current = null; }
+      try { Tts.stop(); } catch { /* noop */ }
+      leaveOrderRoom(orderId);
+      dispatch(setActiveOrder(null));
+      setCancelledOrder(o);
+      notifyOrderCancelled(orderId, o.orderId);
+    };
+    const check = () => {
+      getOrderById(orderId)
+        .then(o => { if (o.status === 'cancelled') stopForCancel(o); })
+        .catch(() => {});
+    };
+    const onUpdate = (update: { status?: Order['status'] }) => {
+      if (update?.status === 'cancelled') check();
+    };
+    connectSocket().then(s => { if (mounted) s.on('order_update', onUpdate); }).catch(() => {});
+    // Background me socket miss ho sakta hai — wapas aate hi status check karo.
+    const appStateSub = AppState.addEventListener('change', s => { if (s === 'active') check(); });
+    return () => {
+      mounted = false;
+      appStateSub.remove();
+      getSocket()?.off('order_update', onUpdate);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderId]);
+
+  const exitToDashboard = () => {
+    clearCancelNotification(orderId);
+    navigation.popToTop();
+  };
+
+  const cancelOverlay = (
+    <OrderCancelledOverlay visible={!!cancelledOrder} order={cancelledOrder} onClose={exitToDashboard} />
+  );
+
   const recenter = () => {
     followRef.current = true;
     if (riderPos) moveCamera(riderPos, headingRef.current, 500);
@@ -291,7 +345,8 @@ const NavigationScreen = () => {
     return (
       <View style={styles.loadingWrap}>
         <ActivityIndicator size="large" color={COLORS.secondary} />
-        <Text style={styles.loadingText}>Route nikaal rahe hain…</Text>
+        <Text style={styles.loadingText}>{t('nav.loadingRoute')}</Text>
+        {cancelOverlay}
       </View>
     );
   }
@@ -344,7 +399,7 @@ const NavigationScreen = () => {
           <Text style={styles.instrIcon}>{arrived ? '🏁' : currentStep?.icon ?? '⬆️'}</Text>
           <View style={{ flex: 1 }}>
             <Text style={styles.instrText} numberOfLines={2}>
-              {arrived ? 'Aap pahunch gaye! 🎉' : currentStep?.text ?? 'Continue'}
+              {arrived ? `${t('nav.arrived')} 🎉` : currentStep?.text ?? t('common.continue')}
             </Text>
             {!arrived && <Text style={styles.instrDist}>{fmtDist(distToManeuver)}</Text>}
           </View>
@@ -352,7 +407,7 @@ const NavigationScreen = () => {
         {recalculating && (
           <View style={styles.reroute}>
             <ActivityIndicator color="#fff" size="small" />
-            <Text style={styles.rerouteText}>Re-routing… (galat raasta)</Text>
+            <Text style={styles.rerouteText}>{t('nav.rerouting')}</Text>
           </View>
         )}
       </SafeAreaView>
@@ -371,18 +426,19 @@ const NavigationScreen = () => {
       <SafeAreaView edges={['bottom']} style={styles.bottomSafe} pointerEvents="box-none">
         <View style={styles.bottomCard}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.etaBig}>{arrived ? 'Pahunch gaye' : fmtDur(remainingDur)}</Text>
+            <Text style={styles.etaBig}>{arrived ? t('nav.reached') : fmtDur(remainingDur)}</Text>
             <Text style={styles.etaMeta}>
-              {fmtDist(remainingDist)}{arrived ? '' : `  ·  ${etaClock(remainingDur)} pahunch`}
+              {fmtDist(remainingDist)}{arrived ? '' : `  ·  ${t('nav.eta', { time: etaClock(remainingDur) })}`}
             </Text>
-            <Text style={styles.destLabel} numberOfLines={1}>{label}: {destinationAddress}</Text>
+            <Text style={styles.destLabel} numberOfLines={1}>{label === 'Pickup' ? t('map.pickup') : label === 'Delivery' ? t('map.delivery') : label}: {destinationAddress}</Text>
           </View>
           <TouchableOpacity style={styles.exitBtn} onPress={() => navigation.goBack()} activeOpacity={0.85}>
             <Text style={styles.exitText}>✕</Text>
-            <Text style={styles.exitLabel}>Exit</Text>
+            <Text style={styles.exitLabel}>{t('nav.exit')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
+      {cancelOverlay}
     </View>
   );
 };

@@ -3,14 +3,15 @@ import {
   View, Text, StyleSheet, ScrollView, Alert, TextInput, Animated, TouchableOpacity, Linking, Pressable, AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRoute, RouteProp, useNavigation } from '@react-navigation/native';
+import { useRoute, RouteProp, useNavigation, useIsFocused } from '@react-navigation/native';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import Geolocation from '@react-native-community/geolocation';
 import { RiderStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import { setActiveOrder } from '../../store/slices/orderSlice';
-import { connectSocket, joinOrderRoom, emitRiderLocation, onSocketReconnect } from '../../services/socketService';
+import { connectSocket, getSocket, joinOrderRoom, leaveOrderRoom, emitRiderLocation, onSocketReconnect } from '../../services/socketService';
+import { notifyOrderCancelled, clearCancelNotification } from '../../services/orderCancelNotification';
 import { getOrderById, confirmPickup, confirmDelivery } from '../../services/orderService';
 import { requestLocationPermission, getCurrentPosition } from '../../services/locationService';
 import { fetchRoute } from '../../services/routeService';
@@ -19,8 +20,10 @@ import Button       from '../../components/common/Button';
 import StatusBadge  from '../../components/common/StatusBadge';
 import SwipeToConfirm from '../../components/common/SwipeToConfirm';
 import ScreenHeader from '../../components/navigation/ScreenHeader';
+import OrderCancelledOverlay from '../../components/common/OrderCancelledOverlay';
 import { Order, Coordinates, UserProfile } from '../../types';
 import { formatCurrency, truncateAddress } from '../../utils/formatters';
+import { translate, useTranslation } from '../../i18n';
 
 type Route = RouteProp<RiderStackParamList, 'ActiveDelivery'>;
 
@@ -76,7 +79,7 @@ const OtpBoxes = ({
         ref={inputRef}
         style={styles.otpHiddenInput}
         value={value}
-        onChangeText={t => onChange(t.replace(/[^0-9]/g, '').slice(0, 4))}
+        onChangeText={v => onChange(v.replace(/[^0-9]/g, '').slice(0, 4))}
         onFocus={onFocus}
         keyboardType="number-pad"
         maxLength={4}
@@ -91,6 +94,8 @@ const ActiveDeliveryScreen = () => {
   const route      = useRoute<Route>();
   const navigation = useNavigation();
   const dispatch   = useAppDispatch();
+  const { t }      = useTranslation();
+  const isFocused  = useIsFocused();
   const { orderId } = route.params;
 
   const mapRef              = useRef<MapView>(null);
@@ -108,6 +113,8 @@ const ActiveDeliveryScreen = () => {
   // pehle "cash received" swipe card dikhao (commission usi swipe se cut hoti hai).
   const [showCashCard, setShowCashCard] = useState(false);
   const locationWatchId = useRef<number | null>(null);
+  const [cancelDismissed, setCancelDismissed] = useState(false);
+  const cancelledRef = useRef(false);
   const lastRouteOrigin = useRef<Coordinates | null>(null);
   const lastRouteTarget = useRef<Coordinates | null>(null);
 
@@ -129,6 +136,7 @@ const ActiveDeliveryScreen = () => {
 
   useEffect(() => {
     let mounted = true;
+    let orderUpdateHandler: ((u: any) => void) | null = null;
 
     // Socket toota tha (network switch / background) to beech ke updates —
     // jaise customer ka address change — miss ho jaate hain. Reconnect aur
@@ -144,36 +152,46 @@ const ActiveDeliveryScreen = () => {
     });
 
     const init = async () => {
+      let initialStatus: Order['status'] | null = null;
       try {
         const o = await getOrderById(orderId);
+        initialStatus = o.status;
         if (mounted) { setOrder(o); dispatch(setActiveOrder(o)); }
       } catch { /* silent */ }
 
       const socket = await connectSocket();
       joinOrderRoom(orderId);
-      socket.on('order_update', (update: Partial<Order> & { status: Order['status']; addressChanged?: boolean }) => {
+      orderUpdateHandler = (update: Partial<Order> & { status: Order['status']; addressChanged?: boolean }) => {
         if (!mounted) return;
         // Customer delivery address badal sakta hai — delivery/fare bhi merge karo
         // taaki naya target + naya earning turant dikhe.
         setOrder(prev => prev ? { ...prev, ...update } : prev);
         if (update.addressChanged) {
           Alert.alert(
-            '📍 Delivery Address Badla',
-            'Customer ne delivery ka address update kiya hai. Naya route aur fare map par dikh raha hai.',
+            '📍 ' + translate('active.addrChanged'),
+            translate('active.addrChangedMsg'),
           );
         }
-      });
+        // Cancel event me sirf status aata hai — kisne/kyun cancel kiya wo
+        // order fresh laake dikhao.
+        if (update.status === 'cancelled') refetchOrder();
+      };
+      socket.on('order_update', orderUpdateHandler);
+
+      // Cancelled order par GPS/location stream shuru hi mat karo.
+      if (cancelledRef.current || initialStatus === 'cancelled') return;
 
       // Request location permission before starting GPS
       const permStatus = await requestLocationPermission();
       if (permStatus !== 'granted') {
-        Alert.alert('Location Chahiye', 'Delivery ke liye GPS allow karo.');
+        Alert.alert(translate('active.locationNeeded'), translate('active.locationNeededMsg'));
         return;
       }
 
       // Get one immediate fix so the rider marker + route line appear right away.
       // watchPosition can take several seconds (or silently fail) for its first
       // callback, which would leave the map without a current location.
+      if (cancelledRef.current) return;
       getCurrentPosition()
         .then(c => { if (mounted) setRiderPos(c); })
         .catch(() => { /* watchPosition below may still deliver */ });
@@ -194,9 +212,36 @@ const ActiveDeliveryScreen = () => {
       mounted = false;
       offReconnect();
       appStateSub.remove();
+      if (orderUpdateHandler) getSocket()?.off('order_update', orderUpdateHandler);
       if (locationWatchId.current !== null) Geolocation.clearWatch(locationWatchId.current);
     };
   }, [orderId]);
+
+  // Customer ne cancel kar diya (live socket event, reconnect refetch ya screen
+  // khulte waqt) — GPS band karo, route hatao, rider ko alert do. Ab is order
+  // par location bhejne ka koi matlab nahi.
+  useEffect(() => {
+    if (order?.status !== 'cancelled' || cancelledRef.current) return;
+    cancelledRef.current = true;
+    if (locationWatchId.current !== null) {
+      Geolocation.clearWatch(locationWatchId.current);
+      locationWatchId.current = null;
+    }
+    setRouteCoords([]);
+    setRouteDistance(null);
+    setRouteDuration(null);
+    setOtp('');
+    setShowCashCard(false);
+    leaveOrderRoom(orderId);
+    dispatch(setActiveOrder(null));
+    notifyOrderCancelled(orderId, order.orderId);
+  }, [order?.status, order?.orderId, orderId, dispatch]);
+
+  const goToDashboard = () => {
+    setCancelDismissed(true);
+    clearCancelNotification(orderId);
+    (navigation as any).popToTop();
+  };
 
   // Center / fit the map on the active target as soon as the order loads
   // and on every pickup → delivery transition. Runs even without GPS or the
@@ -229,7 +274,7 @@ const ActiveDeliveryScreen = () => {
   // so it works whether or not the Google Directions API is enabled on the key.
   // Falls back to a straight line if both providers fail.
   useEffect(() => {
-    if (!riderPos || !order) return;
+    if (!riderPos || !order || order.status === 'cancelled') return;
     const target = order.status === 'accepted'
       ? order.pickup.coordinates
       : order.delivery.coordinates;
@@ -277,10 +322,10 @@ const ActiveDeliveryScreen = () => {
 
   const handlePickupConfirm = async () => {
     if (!withinRange) {
-      return Alert.alert('Pickup Se Door Ho', 'OTP daalne ke liye pickup location ke 100m ke andar aao.');
+      return Alert.alert(t('active.farPickup'), t('active.farPickupMsg'));
     }
     if (!otp || otp.length !== 4) {
-      return Alert.alert('OTP Galat Hai', 'Customer se 4-digit OTP lo aur enter karo.');
+      return Alert.alert(t('active.wrongOtp'), t('active.wrongOtpMsg'));
     }
     try {
       setLoading(true);
@@ -291,7 +336,7 @@ const ActiveDeliveryScreen = () => {
       setRouteDuration(null);
       showTransitionBanner();
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(t('common.error'), e.message);
     } finally {
       setLoading(false);
     }
@@ -312,7 +357,7 @@ const ActiveDeliveryScreen = () => {
         locationWatchId.current = null;
       }
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(t('common.error'), e.message);
       throw e;
     } finally {
       setLoading(false);
@@ -321,10 +366,10 @@ const ActiveDeliveryScreen = () => {
 
   const handleDeliveryConfirm = () => {
     if (!withinRange) {
-      return Alert.alert('Delivery Se Door Ho', 'OTP daalne ke liye delivery location ke 100m ke andar aao.');
+      return Alert.alert(t('active.farDelivery'), t('active.farDeliveryMsg'));
     }
     if (!otp || otp.length !== 4) {
-      return Alert.alert('OTP Galat Hai', 'Customer se 4-digit OTP lo aur enter karo.');
+      return Alert.alert(t('active.wrongOtp'), t('active.wrongOtpMsg'));
     }
     if (order?.paymentMethod === 'COD') {
       // COD: OTP already verify ho chuka (range + length) — ab cash-received
@@ -341,6 +386,7 @@ const ActiveDeliveryScreen = () => {
   const isPickup   = order?.status === 'accepted';
   const isDelivery = order?.status === 'picked_up';
   const isDone     = order?.status === 'delivered';
+  const isCancelled = order?.status === 'cancelled';
 
   // Order owner (customer) details for the contact card + call button.
   const customer = order && typeof order.customer === 'object' && order.customer
@@ -364,10 +410,10 @@ const ActiveDeliveryScreen = () => {
   const distToTarget = riderPos && targetCoords ? distanceMeters(riderPos, targetCoords) : null;
   const withinRange  = distToTarget !== null && distToTarget <= OTP_RANGE_M;
   const rangeMsg = !riderPos
-    ? { text: '📍 Location le rahe hain…', ok: false }
+    ? { text: `📍 ${t('active.gettingLocation')}`, ok: false }
     : withinRange
-      ? { text: '✅ Aap location pe pohonch gaye — OTP daalo', ok: true }
-      : { text: `📍 ${Math.round(distToTarget!)} m door — OTP daalne ke liye 100m ke andar aao`, ok: false };
+      ? { text: `✅ ${t('active.arrived')}`, ok: true }
+      : { text: `📍 ${t('active.metersAway', { m: Math.round(distToTarget!) })}`, ok: false };
 
   const initialRegion = targetCoords
     ? { latitude: targetCoords.lat, longitude: targetCoords.lng, latitudeDelta: 0.02, longitudeDelta: 0.02 }
@@ -383,10 +429,11 @@ const ActiveDeliveryScreen = () => {
     ? { latitude: deliveryCoords.lat, longitude: deliveryCoords.lng }
     : null;
 
-  const stepTitle = isPickup ? 'Pickup Pe Jao' : isDelivery ? 'Delivery Pe Jao' : 'Delivery Ho Gayi!';
-  const stepSub   = isPickup
-    ? 'Pickup location pe parcel lene jao'
-    : isDelivery ? 'Delivery location pe parcel dene jao' : 'Sab steps complete ho gaye';
+  const stepTitle = isCancelled ? t('cancel.title')
+    : isPickup ? t('rider.goPickup') : isDelivery ? t('rider.goDelivery') : t('active.deliveryDone');
+  const stepSub   = isCancelled ? t('cancel.byOther')
+    : isPickup ? t('active.pickupSub')
+    : isDelivery ? t('active.deliverySub') : t('active.allDone');
 
   const formatDuration = (min: number) =>
     min < 60 ? `${Math.round(min)} min` : `${Math.floor(min / 60)}h ${Math.round(min % 60)}min`;
@@ -397,7 +444,7 @@ const ActiveDeliveryScreen = () => {
         title={stepTitle}
         subtitle={stepSub}
         canGoBack
-        onBack={() => navigation.goBack()}
+        onBack={() => (isCancelled ? goToDashboard() : navigation.goBack())}
       />
 
       {/* Map */}
@@ -423,7 +470,7 @@ const ActiveDeliveryScreen = () => {
 
           {/* Rider marker */}
           {riderLatLng && (
-            <Marker coordinate={riderLatLng} title="Aap">
+            <Marker coordinate={riderLatLng} title={t('map.you')}>
               <View style={styles.riderDot}>
                 <Text style={{ fontSize: 18 }}>🏍️</Text>
               </View>
@@ -432,12 +479,12 @@ const ActiveDeliveryScreen = () => {
 
           {/* Pickup marker */}
           {pickupLatLng && (
-            <Marker coordinate={pickupLatLng} title="Pickup" pinColor="green" />
+            <Marker coordinate={pickupLatLng} title={t('map.pickup')} pinColor="green" />
           )}
 
           {/* Delivery marker */}
           {deliveryLatLng && (
-            <Marker coordinate={deliveryLatLng} title="Delivery" pinColor={COLORS.primary} />
+            <Marker coordinate={deliveryLatLng} title={t('map.delivery')} pinColor={COLORS.primary} />
           )}
         </MapView>
 
@@ -460,9 +507,9 @@ const ActiveDeliveryScreen = () => {
         )}
 
         {/* Step indicator on map */}
-        <View style={[styles.stepBadgeOnMap, { backgroundColor: isPickup ? COLORS.success : COLORS.primary }]}>
+        <View style={[styles.stepBadgeOnMap, { backgroundColor: isCancelled ? COLORS.error : isPickup ? COLORS.success : COLORS.primary }]}>
           <Text style={styles.stepBadgeText}>
-            {isPickup ? '● Pickup' : isDone ? '✓ Done' : '● Delivery'}
+            {isCancelled ? `✕ ${t('status.cancelled')}` : isPickup ? '● Pickup' : isDone ? '✓ Done' : '● Delivery'}
           </Text>
         </View>
 
@@ -473,7 +520,7 @@ const ActiveDeliveryScreen = () => {
         <Animated.View style={[styles.transitionBanner, { opacity: bannerAnim, transform: [{ translateY: bannerAnim.interpolate({ inputRange: [0, 1], outputRange: [-20, 0] }) }] }]}>
           <Text style={styles.transitionIcon}>📦✅</Text>
           <View>
-            <Text style={styles.transitionTitle}>Parcel Pick Up Ho Gaya!</Text>
+            <Text style={styles.transitionTitle}>{t('active.pickedUp')}</Text>
             <Text style={styles.transitionSub}>Ab delivery location pe jao 🚀</Text>
           </View>
         </Animated.View>
@@ -491,7 +538,7 @@ const ActiveDeliveryScreen = () => {
               <View>
                 <Text style={styles.orderId}># {order.orderId}</Text>
                 <Text style={styles.step}>
-                  {isPickup ? 'Step 1/2 — Pickup' : isDelivery ? 'Step 2/2 — Delivery' : 'Completed ✓'}
+                  {isCancelled ? t('cancel.title') : isPickup ? `${t('active.step', { n: 1 })} — ${t('map.pickup')}` : isDelivery ? `${t('active.step', { n: 2 })} — ${t('map.delivery')}` : `${t('active.completed')} ✓`}
                 </Text>
               </View>
               <StatusBadge status={order.status} />
@@ -499,12 +546,12 @@ const ActiveDeliveryScreen = () => {
 
             {/* Earnings banner */}
             <View style={styles.earningBanner}>
-              <Text style={styles.earningLabel}>Aapki Kamai</Text>
+              <Text style={styles.earningLabel}>{t('active.yourEarning')}</Text>
               <Text style={styles.earningValue}>{formatCurrency(order.riderEarning)}</Text>
             </View>
 
             {/* Customer contact card + call */}
-            {customer && !isDone && (
+            {customer && !isDone && !isCancelled && (
               <View style={styles.customerCard}>
                 <View style={styles.customerAvatar}>
                   <Text style={styles.customerAvatarText}>
@@ -512,7 +559,7 @@ const ActiveDeliveryScreen = () => {
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.customerLabel}>Customer</Text>
+                  <Text style={styles.customerLabel}>{t('role.customer')}</Text>
                   <Text style={styles.customerName} numberOfLines={1}>{customer.name || 'Customer'}</Text>
                   {customer.phone ? (
                     <Text style={styles.customerPhone} numberOfLines={1}>{customer.phone}</Text>
@@ -534,35 +581,35 @@ const ActiveDeliveryScreen = () => {
               <View style={styles.routeRow}>
                 <View style={[styles.routeDot, { backgroundColor: COLORS.success }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.routeLabel}>Pickup</Text>
+                  <Text style={styles.routeLabel}>{t('map.pickup')}</Text>
                   <Text style={styles.routeAddr} numberOfLines={2}>{truncateAddress(order.pickup.address, 80)}</Text>
                   {order.pickup.contactName ? (
                     <Text style={styles.contactText}>👤 {order.pickup.contactName} · {order.pickup.contactPhone}</Text>
                   ) : null}
                 </View>
-                {isPickup && <View style={styles.activePill}><Text style={styles.activePillText}>JAO</Text></View>}
+                {isPickup && <View style={styles.activePill}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
               </View>
               <View style={styles.routeConnector} />
               <View style={styles.routeRow}>
                 <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.routeLabel}>Delivery</Text>
+                  <Text style={styles.routeLabel}>{t('map.delivery')}</Text>
                   <Text style={styles.routeAddr} numberOfLines={2}>{truncateAddress(order.delivery.address, 80)}</Text>
                   {order.delivery.contactName ? (
                     <Text style={styles.contactText}>👤 {order.delivery.contactName} · {order.delivery.contactPhone}</Text>
                   ) : null}
                 </View>
-                {isDelivery && <View style={[styles.activePill, { backgroundColor: COLORS.primary }]}><Text style={styles.activePillText}>JAO</Text></View>}
+                {isDelivery && <View style={[styles.activePill, { backgroundColor: COLORS.primary }]}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
               </View>
             </View>
 
             {/* Start turn-by-turn navigation */}
-            {!isDone && (
+            {!isDone && !isCancelled && (
               <TouchableOpacity style={styles.navCta} onPress={startNavigation} activeOpacity={0.88}>
                 <Text style={styles.navCtaIcon}>🧭</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.navCtaText}>Navigation Shuru Karo</Text>
-                  <Text style={styles.navCtaSub}>{isPickup ? 'Pickup' : 'Delivery'} tak turn-by-turn directions</Text>
+                  <Text style={styles.navCtaText}>{t('active.startNav')}</Text>
+                  <Text style={styles.navCtaSub}>{t('active.navSub', { target: isPickup ? t('map.pickup') : t('map.delivery') })}</Text>
                 </View>
                 <Text style={styles.navCtaArrow}>›</Text>
               </TouchableOpacity>
@@ -574,8 +621,8 @@ const ActiveDeliveryScreen = () => {
                 <View style={styles.otpHeader}>
                   <Text style={styles.otpIcon}>🔑</Text>
                   <View>
-                    <Text style={styles.otpTitle}>Pickup OTP Daalo</Text>
-                    <Text style={styles.otpHint}>Customer se OTP lo aur yahan type karo</Text>
+                    <Text style={styles.otpTitle}>{t('active.enterPickupOtp')}</Text>
+                    <Text style={styles.otpHint}>{t('active.otpHint')}</Text>
                   </View>
                 </View>
                 <View style={[styles.rangeBanner, rangeMsg.ok ? styles.rangeBannerOk : styles.rangeBannerWarn]}>
@@ -585,7 +632,7 @@ const ActiveDeliveryScreen = () => {
                 </View>
                 <OtpBoxes value={otp} onChange={setOtp} color={COLORS.success} disabled={!withinRange} onFocus={scrollOtpIntoView} />
                 <Button
-                  title={withinRange ? 'Pickup Confirm Karo' : 'Pickup Ke Paas Jao'}
+                  title={withinRange ? t('active.confirmPickup') : t('active.goNearPickup')}
                   onPress={handlePickupConfirm}
                   loading={loading}
                   disabled={!withinRange}
@@ -601,8 +648,8 @@ const ActiveDeliveryScreen = () => {
                 <View style={styles.otpHeader}>
                   <Text style={styles.otpIcon}>🔑</Text>
                   <View>
-                    <Text style={styles.otpTitle}>Delivery OTP Daalo</Text>
-                    <Text style={styles.otpHint}>Customer se OTP lo aur yahan type karo</Text>
+                    <Text style={styles.otpTitle}>{t('active.enterDeliveryOtp')}</Text>
+                    <Text style={styles.otpHint}>{t('active.otpHint')}</Text>
                   </View>
                 </View>
                 <View style={[styles.rangeBanner, rangeMsg.ok ? styles.rangeBannerOk : styles.rangeBannerWarn]}>
@@ -612,7 +659,7 @@ const ActiveDeliveryScreen = () => {
                 </View>
                 <OtpBoxes value={otp} onChange={setOtp} color={COLORS.primary} disabled={!withinRange} onFocus={scrollOtpIntoView} />
                 <Button
-                  title={withinRange ? 'Delivery Confirm Karo' : 'Delivery Ke Paas Jao'}
+                  title={withinRange ? t('active.confirmDelivery') : t('active.goNearDelivery')}
                   onPress={handleDeliveryConfirm}
                   loading={loading}
                   disabled={!withinRange}
@@ -629,36 +676,53 @@ const ActiveDeliveryScreen = () => {
                 <View style={styles.otpHeader}>
                   <Text style={styles.otpIcon}>💵</Text>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.otpTitle}>Cash Collect Karo</Text>
-                    <Text style={styles.otpHint}>Customer se pura amount cash me lo</Text>
+                    <Text style={styles.otpTitle}>{t('active.collectCash')}</Text>
+                    <Text style={styles.otpHint}>{t('active.collectCashHint')}</Text>
                   </View>
                   <TouchableOpacity onPress={() => setShowCashCard(false)} hitSlop={10} disabled={loading}>
                     <Text style={styles.cashCardBack}>✕</Text>
                   </TouchableOpacity>
                 </View>
                 <View style={styles.cashAmountBox}>
-                  <Text style={styles.cashAmountLabel}>Customer Se Lena Hai</Text>
+                  <Text style={styles.cashAmountLabel}>{t('active.toCollect')}</Text>
                   <Text style={styles.cashAmountValue}>
                     {formatCurrency(order.fare.final || order.fare.estimated)}
                   </Text>
                 </View>
                 <SwipeToConfirm
-                  label="Swipe → Cash Mil Gaya"
-                  confirmingLabel="Confirm ho raha hai…"
+                  label={t('active.swipeCash')}
+                  confirmingLabel={t('active.confirming')}
                   color={COLORS.success}
                   onConfirm={doConfirmDelivery}
                 />
               </View>
             )}
 
+            {/* Order cancelled — sheet me bhi saaf dikhe */}
+            {isCancelled && (
+              <View style={styles.cancelBanner}>
+                <Text style={styles.cancelIcon}>✕</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cancelTitle}>{t('cancel.title')}</Text>
+                  <Text style={styles.cancelSub}>
+                    {order.cancelledBy === 'customer' ? t('cancel.byCustomer')
+                      : order.cancelledBy === 'admin' ? t('cancel.byAdmin') : t('cancel.byOther')}
+                  </Text>
+                </View>
+              </View>
+            )}
+            {isCancelled && (
+              <Button title={t('active.goDashboard')} onPress={goToDashboard} variant="danger" style={{ marginBottom: 12 }} />
+            )}
+
             {/* Delivery Complete */}
             {isDone && (
               <View style={styles.doneBanner}>
                 <Text style={styles.doneIcon}>🎉</Text>
-                <Text style={styles.doneTitle}>Delivery Complete!</Text>
-                <Text style={styles.doneSub}>Bahut badhiya kaam kiya! Payment settle ho jaayegi.</Text>
+                <Text style={styles.doneTitle}>{t('active.complete')}</Text>
+                <Text style={styles.doneSub}>{t('active.completeSub')}</Text>
                 <View style={styles.doneEarning}>
-                  <Text style={styles.doneEarningLabel}>Total Kamai</Text>
+                  <Text style={styles.doneEarningLabel}>{t('active.totalEarning')}</Text>
                   <Text style={styles.doneEarningValue}>{formatCurrency(order.riderEarning)}</Text>
                 </View>
                 {/* Customer rating dete hi socket order_update se yahan live aa jaati hai */}
@@ -668,13 +732,13 @@ const ActiveDeliveryScreen = () => {
                       {'★'.repeat(order.rating)}
                       <Text style={styles.doneRatingStarsOff}>{'★'.repeat(5 - order.rating)}</Text>
                     </Text>
-                    <Text style={styles.doneRatingText}>Customer ne {order.rating}★ rating di 🙏</Text>
+                    <Text style={styles.doneRatingText}>{t('active.ratedBy', { n: order.rating })} 🙏</Text>
                   </View>
                 ) : (
-                  <Text style={styles.doneRatingWait}>Customer ki rating ka intezaar…</Text>
+                  <Text style={styles.doneRatingWait}>{t('active.ratingWait')}</Text>
                 )}
                 <Button
-                  title="Dashboard Pe Jao"
+                  title={t('active.goDashboard')}
                   onPress={() => navigation.goBack()}
                   style={{ marginTop: 16 }}
                 />
@@ -684,6 +748,13 @@ const ActiveDeliveryScreen = () => {
         )}
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <OrderCancelledOverlay
+        // Navigation screen upar khuli ho to wahi card dikhati hai — double na ho
+        visible={isCancelled && !cancelDismissed && isFocused}
+        order={order}
+        onClose={goToDashboard}
+      />
     </SafeAreaView>
   );
 };
@@ -736,6 +807,15 @@ const styles = StyleSheet.create({
   transitionSub:   { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 1 },
 
   sheet: { flex: 1, paddingHorizontal: 16, paddingTop: 14 },
+
+  cancelBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: COLORS.error + '12', borderRadius: 14, padding: 14, marginBottom: 12,
+    borderWidth: 1, borderColor: COLORS.error + '40',
+  },
+  cancelIcon:  { fontSize: 22, fontWeight: '900', color: COLORS.error },
+  cancelTitle: { fontSize: 15, fontWeight: '800', color: COLORS.error },
+  cancelSub:   { fontSize: 12, color: COLORS.textMuted, marginTop: 2, lineHeight: 17 },
 
   sheetHeader: {
     flexDirection: 'row', justifyContent: 'space-between',

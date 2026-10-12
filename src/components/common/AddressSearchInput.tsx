@@ -7,11 +7,14 @@ import { GooglePlacesAutocomplete, GooglePlacesAutocompleteRef } from 'react-nat
 import { COLORS, GOOGLE_MAPS_API_KEY } from '../../constants/api';
 import { getCurrentLocation, forwardGeocode, getQuickPosition } from '../../services/locationService';
 import MapPinConfirm from './MapPinConfirm';
+import { useTranslation } from '../../i18n';
 import { Coordinates } from '../../types';
 
 interface Props {
   label: string;
   placeholder: string;
+  /** Map pin screen ka title — default "Exact location pin karein". */
+  pinTitle?: string;
   leftIcon?: string;
   showCurrentLocation?: boolean;
   /** Search results ko is location ke aas-paas bias karo (e.g. user ka current
@@ -49,6 +52,7 @@ export const mergeTypedWithSuggestion = (typed: string, suggestion: string): str
 const AddressSearchInput: React.FC<Props> = ({
   label,
   placeholder,
+  pinTitle,
   leftIcon = '📍',
   showCurrentLocation = false,
   biasCoords,
@@ -56,6 +60,7 @@ const AddressSearchInput: React.FC<Props> = ({
   onTextChange,
 }) => {
   const ref = useRef<GooglePlacesAutocompleteRef>(null);
+  const { t } = useTranslation();
   const [locLoading, setLocLoading] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
   const [typedText,  setTypedText]  = useState('');
@@ -125,8 +130,8 @@ const AddressSearchInput: React.FC<Props> = ({
       if (!center) center = biasCoords || (await getQuickPosition());
       if (!center) {
         Alert.alert(
-          'Location Nahi Mili',
-          'Pehle address type karo ya paas ka landmark search karo — phir 📌 daba ke map par pin lagao.',
+          t('loc.notFound'),
+          t('loc.typeFirst'),
         );
         return;
       }
@@ -152,8 +157,8 @@ const AddressSearchInput: React.FC<Props> = ({
               // Place Details fail (network/quota) — chupchaap kuch na hone se
               // user atak jaata tha; typed-address fallback ka raasta batao.
               Alert.alert(
-                'Location Load Nahi Hui',
-                'Internet check karke dobara try karo, ya 📌 daba ke map par pin lagao.',
+                t('loc.loadFailed'),
+                t('loc.loadFailedMsg'),
               );
               return;
             }
@@ -226,7 +231,7 @@ const AddressSearchInput: React.FC<Props> = ({
             <Text style={styles.gpsIcon}>🎯</Text>
           )}
           <Text style={[styles.gpsBtnText, locLoading && { color: COLORS.textMuted }]}>
-            {locLoading ? 'Location dhoondh rahe hain...' : 'Current Location Use Karo'}
+            {locLoading ? t('loc.finding') : t('loc.useCurrent')}
           </Text>
         </TouchableOpacity>
       )}
@@ -235,7 +240,7 @@ const AddressSearchInput: React.FC<Props> = ({
         visible={mapVisible}
         initialCoords={mapInit?.coords || { lat: 28.4744, lng: 77.5040 }}
         initialAddress={mapInit?.address || ''}
-        title={label === 'Address' ? 'Exact Location Pin Karo' : label}
+        title={pinTitle ?? t('pin.title')}
         onConfirm={handleMapConfirm}
         onClose={() => setMapVisible(false)}
       />

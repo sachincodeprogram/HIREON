@@ -13,9 +13,11 @@ import StatusBadge   from '../../components/common/StatusBadge';
 import ScreenHeader  from '../../components/navigation/ScreenHeader';
 import { Order } from '../../types';
 import { formatCurrency, formatDateTime, formatDistance, truncateAddress } from '../../utils/formatters';
+import { useTranslation } from '../../i18n';
 
 const OrderHistoryScreen = () => {
   const dispatch   = useAppDispatch();
+  const { t }      = useTranslation();
   const orders     = useAppSelector(s => s.order.orders);
   const loading    = useAppSelector(s => s.order.loading);
   const navigation = useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
@@ -65,12 +67,12 @@ const OrderHistoryScreen = () => {
           <Text style={styles.fare}>{formatCurrency(item.fare.estimated)}</Text>
           <Text style={styles.distance}>{formatDistance(item.fare.distance)}</Text>
           {['accepted', 'picked_up', 'in_transit'].includes(item.status) && (
-            <Text style={styles.trackBtn}>Track →</Text>
+            <Text style={styles.trackBtn}>{t('orders.track')} →</Text>
           )}
           {item.status === 'delivered' && (
             item.rating
               ? <Text style={styles.ratedText}>{'★'.repeat(item.rating)} {item.rating}.0</Text>
-              : <Text style={styles.trackBtn}>Rate karo ⭐</Text>
+              : <Text style={styles.trackBtn}>{t('orders.rate')} ⭐</Text>
           )}
         </View>
       </View>
@@ -80,8 +82,8 @@ const OrderHistoryScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScreenHeader
-        title="My Orders"
-        subtitle={orders.length > 0 ? `${orders.length} orders total` : 'Your delivery history'}
+        title={t('orders.myOrders')}
+        subtitle={orders.length > 0 ? t('orders.totalCount', { count: orders.length }) : t('orders.historySub')}
       />
       <FlatList
         data={orders}
@@ -93,8 +95,8 @@ const OrderHistoryScreen = () => {
           !loading ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>📋</Text>
-              <Text style={styles.emptyTitle}>No orders yet</Text>
-              <Text style={styles.emptySubtitle}>Your delivery history will appear here</Text>
+              <Text style={styles.emptyTitle}>{t('orders.empty')}</Text>
+              <Text style={styles.emptySubtitle}>{t('orders.emptySub')}</Text>
             </View>
           ) : null
         }

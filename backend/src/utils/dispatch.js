@@ -2,7 +2,7 @@ const Order         = require('../models/Order');
 const User          = require('../models/User');
 const RiderLocation = require('../models/RiderLocation');
 const { haversineKm } = require('./fareCalculator');
-const { sendOrderPush } = require('./push');
+const { sendOrderPush, sendRingWithdrawPush } = require('./push');
 
 // Tiered radius dispatch — Dunzo/Porter style. Pehle paas wale riders ko bhejo,
 // koi accept na kare to ring badha do: 1km -> 3km -> 5km. Har tier ko 1:30 min.
@@ -28,6 +28,40 @@ const cancelDispatch = (orderId) => {
   if (!entry) return;
   entry.timers.forEach(clearTimeout);
   active.delete(id);
+};
+
+// Order cancel ho gaya / kisi rider ne accept kar liya — jin riders ko ring
+// gayi thi unki ring turant band karo (socket + FCM), phir dispatch roko.
+// Pehle ring 90s tak bajti rehti thi aur rider tap kare to "order gone" milta.
+// reason: 'cancelled' | 'taken'. exceptRiderId: jisne accept kiya use mat bhejo.
+// Kabhi throw nahi karta — cancel/accept response par asar nahi.
+const withdrawDispatch = (orderId, reason, exceptRiderId) => {
+  const id = orderId.toString();
+  const entry = active.get(id);
+  cancelDispatch(id);
+  if (!entry || entry.notified.size === 0) return;
+
+  const { io, onlineRiders } = entry.ctx;
+  const except = exceptRiderId ? exceptRiderId.toString() : '';
+  const riderIds = [...entry.notified].filter((rid) => rid !== except);
+  if (riderIds.length === 0) return;
+
+  riderIds.forEach((rid) => {
+    const socketId = onlineRiders?.get(rid);
+    if (socketId) io?.to(socketId).emit('order_request_withdrawn', { orderId: id, reason });
+  });
+
+  User.find({ _id: { $in: riderIds }, fcmToken: { $ne: '' } }).select('_id fcmToken').lean()
+    .then((riders) => {
+      riders.forEach((rider) => {
+        sendRingWithdrawPush(rider.fcmToken, id, reason).then((result) => {
+          if (result === 'invalid-token') {
+            User.updateOne({ _id: rider._id }, { fcmToken: '' }).catch(() => {});
+          }
+        }).catch(() => {});
+      });
+    })
+    .catch(() => {});
 };
 
 // Notify on-duty riders within `radiusKm` of pickup who haven't been pinged yet.
@@ -168,4 +202,4 @@ const registerDecline = async (orderId, riderId) => {
   }
 };
 
-module.exports = { dispatchOrder, cancelDispatch, registerDecline };
+module.exports = { dispatchOrder, cancelDispatch, withdrawDispatch, registerDecline };

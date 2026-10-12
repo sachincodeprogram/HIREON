@@ -15,19 +15,20 @@ import Button         from '../../components/common/Button';
 import Card           from '../../components/common/Card';
 import ScreenHeader   from '../../components/navigation/ScreenHeader';
 import AddressSearchInput from '../../components/common/AddressSearchInput';
+import { TranslationKey, useTranslation } from '../../i18n';
 import { estimateFare }   from '../../services/orderService';
 import { getQuickPosition } from '../../services/locationService';
 import { selectContactPhone } from 'react-native-select-contact';
 
-const SIZES: { value: ParcelSize; label: string; desc: string; icon: string }[] = [
-  { value: 'small',  label: 'Small',  icon: '📄', desc: 'Documents, phone (≤1 kg)' },
-  { value: 'medium', label: 'Medium', icon: '👟', desc: 'Shoes, books (1–5 kg)' },
-  { value: 'large',  label: 'Large',  icon: '📦', desc: 'Clothes, boxes (5–20 kg)' },
+const SIZES: { value: ParcelSize; label: TranslationKey; desc: TranslationKey; icon: string }[] = [
+  { value: 'small',  label: 'book.small',  icon: '📄', desc: 'book.smallDesc' },
+  { value: 'medium', label: 'book.medium', icon: '👟', desc: 'book.mediumDesc' },
+  { value: 'large',  label: 'book.large',  icon: '📦', desc: 'book.largeDesc' },
 ];
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string; desc: string; icon: string }[] = [
-  { value: 'COD',    label: 'Cash on Delivery', desc: 'Rider ko cash do delivery ke time', icon: '💵' },
-  { value: 'ONLINE', label: 'Pay Online',       desc: 'UPI · Cards · Netbanking · QR', icon: '💳' },
+const PAYMENT_METHODS: { value: PaymentMethod; label: TranslationKey; desc: TranslationKey; icon: string }[] = [
+  { value: 'COD',    label: 'pay.cod',    desc: 'pay.codDesc',    icon: '💵' },
+  { value: 'ONLINE', label: 'pay.online', desc: 'pay.onlineDesc', icon: '💳' },
 ];
 
 const WEIGHT_PRESETS = [0.5, 1, 2, 5, 10];
@@ -51,6 +52,7 @@ const SectionHead: React.FC<{ icon: string; color: string; title: string; sub: s
 
 const BookParcelScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
+  const { t }      = useTranslation();
 
   // Coords sirf map pin-confirm ke baad set hote hain — koi default nahi,
   // warna galat (purani/Delhi) location par order chala jaata hai.
@@ -111,14 +113,14 @@ const BookParcelScreen = () => {
         const granted = await PermissionsAndroid.request(
           PermissionsAndroid.PERMISSIONS.READ_CONTACTS,
           {
-            title: 'Contacts ka access',
-            message: 'Saved contacts se number chunne ke liye permission chahiye.',
-            buttonPositive: 'Allow',
-            buttonNegative: 'Cancel',
+            title: t('book.contactsPermTitle'),
+            message: t('book.contactsPermMsg'),
+            buttonPositive: t('common.allow'),
+            buttonNegative: t('common.cancel'),
           },
         );
         if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
-          Alert.alert('Permission', 'Contacts ka access nahi mila. Aap number manually daal sakte hain.');
+          Alert.alert(t('common.permission'), t('book.contactsDenied'));
           return;
         }
       }
@@ -129,21 +131,21 @@ const BookParcelScreen = () => {
       if (!nameValue.trim() && selection.contact.name) setName(selection.contact.name);
     } catch (e: any) {
       console.log('[CONTACT] picker error:', e?.message || String(e), JSON.stringify(e));
-      Alert.alert('Contacts', 'Contact nahi khul paya. Aap number manually bhi daal sakte hain.');
+      Alert.alert(t('book.contacts'), t('book.contactsFailed'));
     }
   };
 
   const handleEstimate = async () => {
     if (!pickupAddress.trim() || !pickupCoords) {
       return Alert.alert(
-        'Pickup Location Set Karo',
-        'Pickup address chuno aur map par exact location pin karo.',
+        t('book.setPickup'),
+        t('book.setPickupMsg'),
       );
     }
     if (!deliveryAddress.trim() || !deliveryCoords) {
       return Alert.alert(
-        'Delivery Location Set Karo',
-        'Delivery address chuno aur map par exact location pin karo.',
+        t('book.setDelivery'),
+        t('book.setDeliveryMsg'),
       );
     }
     try {
@@ -169,7 +171,7 @@ const BookParcelScreen = () => {
       const estimate = await estimateFare({ pickup: pickupCoords, delivery: deliveryCoords, parcel });
       navigation.navigate('FareEstimate', { pickup, delivery, parcel, estimate, paymentMethod });
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      Alert.alert(t('common.error'), e.message);
     } finally {
       setLoading(false);
     }
@@ -177,7 +179,7 @@ const BookParcelScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScreenHeader title="Book Parcel" subtitle="Schedule a new delivery" />
+      <ScreenHeader title={t('book.title')} subtitle={t('book.subtitle')} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={{ flex: 1 }}>
@@ -189,11 +191,11 @@ const BookParcelScreen = () => {
 
           {/* Pickup */}
           <View style={styles.sectionBlock}>
-            <SectionHead icon="📍" color={COLORS.success} title="Pickup Location" sub="Kahan se uthana hai" step={1} />
+            <SectionHead icon="📍" color={COLORS.success} title={t('book.pickupLocation')} sub={t('book.pickupSub')} step={1} />
             <Card style={{ zIndex: 20, overflow: 'visible' }}>
               <AddressSearchInput
-                label="Address"
-                placeholder="Search pickup address"
+                label={t('book.address')}
+                placeholder={t('book.searchPickup')}
                 leftIcon="📍"
                 showCurrentLocation
                 biasCoords={searchBias}
@@ -201,17 +203,17 @@ const BookParcelScreen = () => {
                 onTextChange={handlePickupTextChange}
               />
               <Input
-                label="Contact Name"
+                label={t('book.contactName')}
                 value={pickupContact}
                 onChangeText={setPickupContact}
-                placeholder="Sender's name"
+                placeholder={t('book.senderName')}
                 leftIcon="👤"
               />
               <Input
-                label="Contact Phone"
+                label={t('book.contactPhone')}
                 value={pickupPhone}
                 onChangeText={setPickupPhone}
-                placeholder="Sender's phone"
+                placeholder={t('book.senderPhone')}
                 keyboardType="phone-pad"
                 leftIcon="📞"
                 rightIcon="👥"
@@ -222,28 +224,28 @@ const BookParcelScreen = () => {
 
           {/* Delivery */}
           <View style={styles.sectionBlock}>
-            <SectionHead icon="🏁" color={COLORS.primary} title="Delivery Location" sub="Kahan pohonchana hai" step={2} />
+            <SectionHead icon="🏁" color={COLORS.primary} title={t('book.deliveryLocation')} sub={t('book.deliverySub')} step={2} />
             <Card style={{ zIndex: 10, overflow: 'visible' }}>
               <AddressSearchInput
-                label="Address"
-                placeholder="Search delivery address"
+                label={t('book.address')}
+                placeholder={t('book.searchDelivery')}
                 leftIcon="🏁"
                 biasCoords={pickupCoords || searchBias}
                 onSelect={handleDeliverySelect}
                 onTextChange={handleDeliveryTextChange}
               />
               <Input
-                label="Contact Name"
+                label={t('book.contactName')}
                 value={deliveryContact}
                 onChangeText={setDeliveryContact}
-                placeholder="Receiver's name"
+                placeholder={t('book.receiverName')}
                 leftIcon="👤"
               />
               <Input
-                label="Contact Phone"
+                label={t('book.contactPhone')}
                 value={deliveryPhone}
                 onChangeText={setDeliveryPhone}
-                placeholder="Receiver's phone"
+                placeholder={t('book.receiverPhone')}
                 keyboardType="phone-pad"
                 leftIcon="📞"
                 rightIcon="👥"
@@ -254,17 +256,17 @@ const BookParcelScreen = () => {
 
           {/* Parcel Info */}
           <View style={styles.sectionBlock}>
-            <SectionHead icon="📦" color={COLORS.warning} title="Parcel Details" sub="Kya bhej rahe ho" step={3} />
+            <SectionHead icon="📦" color={COLORS.warning} title={t('book.parcelDetails')} sub={t('book.parcelSub')} step={3} />
             <Card>
               <Input
-                label="Description (optional)"
+                label={t('book.descOptional')}
                 value={description}
                 onChangeText={setDescription}
-                placeholder="What are you sending?"
+                placeholder={t('book.descPh')}
                 leftIcon="📝"
               />
               <Input
-                label="Weight (kg)"
+                label={t('book.weight')}
                 value={weight}
                 onChangeText={setWeight}
                 placeholder="1.0"
@@ -291,7 +293,7 @@ const BookParcelScreen = () => {
                 })}
               </View>
 
-              <Text style={styles.fieldLabel}>Parcel Size</Text>
+              <Text style={styles.fieldLabel}>{t('book.parcelSize')}</Text>
               <View style={styles.sizeGrid}>
                 {SIZES.map(s => {
                   const active = size === s.value;
@@ -311,9 +313,9 @@ const BookParcelScreen = () => {
                       )}
                       <Text style={styles.sizeIcon}>{s.icon}</Text>
                       <Text style={[styles.sizeLabel, active && styles.sizeLabelActive]}>
-                        {s.label}
+                        {t(s.label)}
                       </Text>
-                      <Text style={styles.sizeDesc} numberOfLines={2}>{s.desc}</Text>
+                      <Text style={styles.sizeDesc} numberOfLines={2}>{t(s.desc)}</Text>
                     </Pressable>
                   );
                 })}
@@ -322,8 +324,8 @@ const BookParcelScreen = () => {
               <View style={[styles.switchRow, isFragile && styles.switchRowActive]}>
                 <Text style={styles.switchIcon}>🛡️</Text>
                 <View style={styles.switchLeft}>
-                  <Text style={styles.switchLabel}>Fragile Item</Text>
-                  <Text style={styles.switchSub}>Extra care handling (+₹20)</Text>
+                  <Text style={styles.switchLabel}>{t('book.fragile')}</Text>
+                  <Text style={styles.switchSub}>{t('book.fragileSub')}</Text>
                 </View>
                 <Switch
                   value={isFragile}
@@ -337,7 +339,7 @@ const BookParcelScreen = () => {
 
           {/* Payment Method */}
           <View style={styles.sectionBlock}>
-            <SectionHead icon="💳" color={COLORS.secondary} title="Payment Method" sub="Kaise pay karoge" step={4} />
+            <SectionHead icon="💳" color={COLORS.secondary} title={t('book.paymentMethod')} sub={t('book.paymentSub')} step={4} />
             <View style={styles.paymentGrid}>
               {PAYMENT_METHODS.map(pm => {
                 const active = paymentMethod === pm.value;
@@ -356,8 +358,8 @@ const BookParcelScreen = () => {
                       </View>
                     )}
                     <Text style={styles.sizeIcon}>{pm.icon}</Text>
-                    <Text style={[styles.sizeLabel, active && styles.sizeLabelActive]}>{pm.label}</Text>
-                    <Text style={styles.sizeDesc} numberOfLines={2}>{pm.desc}</Text>
+                    <Text style={[styles.sizeLabel, active && styles.sizeLabelActive]}>{t(pm.label)}</Text>
+                    <Text style={styles.sizeDesc} numberOfLines={2}>{t(pm.desc)}</Text>
                   </Pressable>
                 );
               })}
@@ -365,7 +367,7 @@ const BookParcelScreen = () => {
           </View>
 
           <Button
-            title="Get Fare Estimate"
+            title={t('book.getEstimate')}
             onPress={handleEstimate}
             loading={loading}
             icon="→"

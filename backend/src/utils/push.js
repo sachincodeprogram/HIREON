@@ -72,4 +72,66 @@ const sendAddressChangePush = async (fcmToken, order) => {
   }
 };
 
-module.exports = { sendOrderPush, sendAddressChangePush };
+// Rider ko order-cancel push — rider pickup ke raaste me ho aur app band /
+// background me ho (socket nahi) tab bhi turant pata chale. DATA-ONLY (naye
+// order jaisa) taaki app ka background handler (index.js) rider ki chuni hui
+// bhasha me notification dikhaye aur socket wale alert ke saath duplicate na
+// bane (dono ek hi notification id use karte hain). Purane app versions is
+// type ko ignore kar dete hain — koi side effect nahi.
+const sendCancelPush = async (fcmToken, order) => {
+  if (!fcmToken) return null;
+  try {
+    await messaging().send({
+      token: fcmToken,
+      data: {
+        type: 'order_cancelled',
+        orderId: order._id ? order._id.toString() : String(order._id),
+        displayId: order.orderId ? String(order.orderId) : '',
+        cancelledBy: order.cancelledBy || '',
+      },
+      android: {
+        priority: 'high', // Doze me bhi turant deliver ho
+      },
+    });
+    return 'sent';
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      return 'invalid-token';
+    }
+    console.warn('[PUSH] cancel send failed:', e.message);
+    return null;
+  }
+};
+
+// Ring band karne wala push — order cancel ho gaya ya kisi aur rider ne le
+// liya. Jin riders ka phone abhi naye order ki ring baja raha hai (app band /
+// lock screen), unki ring turant ruk jaaye, 90s timeout ka intezaar na ho.
+// DATA-ONLY + high priority: app ka background handler notification hata deta
+// hai. Purane app versions is type ko ignore karte hain.
+const sendRingWithdrawPush = async (fcmToken, orderId, reason) => {
+  if (!fcmToken) return null;
+  try {
+    await messaging().send({
+      token: fcmToken,
+      data: {
+        type: 'order_withdrawn',
+        orderId: String(orderId),
+        reason: reason || '',
+      },
+      android: {
+        priority: 'high',
+      },
+    });
+    return 'sent';
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      return 'invalid-token';
+    }
+    console.warn('[PUSH] ring-withdraw send failed:', e.message);
+    return null;
+  }
+};
+
+module.exports = { sendOrderPush, sendAddressChangePush, sendCancelPush, sendRingWithdrawPush };

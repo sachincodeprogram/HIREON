@@ -4,6 +4,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { RiderTabParamList, RiderStackParamList } from './types';
 import { COLORS } from '../constants/api';
 import CustomTabBar from '../components/navigation/CustomTabBar';
+import { useTranslation } from '../i18n';
 
 import RiderDashboard       from '../screens/rider/RiderDashboard';
 import RiderOrderHistory    from '../screens/rider/RiderOrderHistoryScreen';
@@ -16,16 +17,19 @@ import WalletScreen         from '../screens/rider/WalletScreen';
 const Tab   = createBottomTabNavigator<RiderTabParamList>();
 const Stack = createNativeStackNavigator<RiderStackParamList>();
 
-const RiderTabs = () => (
-  <Tab.Navigator
-    tabBar={props => <CustomTabBar {...props} accent={COLORS.secondary} />}
-    screenOptions={{ headerShown: false }}>
-    <Tab.Screen name="Dashboard" component={RiderDashboard}      options={{ title: 'Home' }} />
-    <Tab.Screen name="History"   component={RiderOrderHistory}   options={{ title: 'History' }} />
-    <Tab.Screen name="Earnings"  component={EarningsScreen}      options={{ title: 'Earnings' }} />
-    <Tab.Screen name="Profile"   component={RiderProfileScreen}  options={{ title: 'Profile' }} />
-  </Tab.Navigator>
-);
+const RiderTabs = () => {
+  const { t } = useTranslation();
+  return (
+    <Tab.Navigator
+      tabBar={props => <CustomTabBar {...props} accent={COLORS.secondary} />}
+      screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="Dashboard" component={RiderDashboard}      options={{ title: t('tab.home') }} />
+      <Tab.Screen name="History"   component={RiderOrderHistory}   options={{ title: t('tab.history') }} />
+      <Tab.Screen name="Earnings"  component={EarningsScreen}      options={{ title: t('tab.earnings') }} />
+      <Tab.Screen name="Profile"   component={RiderProfileScreen}  options={{ title: t('tab.profile') }} />
+    </Tab.Navigator>
+  );
+};
 
 const RiderNavigator = () => (
   <Stack.Navigator screenOptions={{ headerShown: false }}>

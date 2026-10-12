@@ -9,6 +9,7 @@ import App from './App';
 import { name as appName } from './app.json';
 import { displayOrderRing } from './src/services/orderRingNotification';
 import { declineOrder } from './src/services/orderService';
+import { notifyOrderCancelled } from './src/services/orderCancelNotification';
 
 // Naya-order push data-only aata hai (backend/src/utils/push.js) taaki screen
 // off / app background / app band — har haal me yeh handler chale aur hum
@@ -18,6 +19,18 @@ import { declineOrder } from './src/services/orderService';
 messaging().setBackgroundMessageHandler(async remoteMessage => {
   if (remoteMessage?.data?.type === 'new_order_request') {
     await displayOrderRing(remoteMessage.data);
+  } else if (remoteMessage?.data?.type === 'order_withdrawn') {
+    // Order cancel ho gaya / kisi aur rider ne le liya — baj rahi ring turant
+    // band karo (ring notification ki id = orderId).
+    const { orderId } = remoteMessage.data;
+    if (typeof orderId === 'string') await notifee.cancelNotification(orderId).catch(() => {});
+  } else if (remoteMessage?.data?.type === 'order_cancelled') {
+    // Customer ne cancel kiya aur rider ki app band/background thi — tray me
+    // "Order Cancelled" dikhao (socket wale alert jaisi hi id, duplicate nahi).
+    const { orderId, displayId } = remoteMessage.data;
+    if (typeof orderId === 'string') {
+      await notifyOrderCancelled(orderId, typeof displayId === 'string' ? displayId : undefined);
+    }
   }
 });
 

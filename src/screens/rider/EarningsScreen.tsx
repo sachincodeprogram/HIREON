@@ -8,9 +8,11 @@ import useAppSelector   from '../../hooks/useAppSelector';
 import { setEarnings }  from '../../store/slices/riderSlice';
 import apiClient        from '../../services/apiClient';
 import { formatCurrency } from '../../utils/formatters';
+import { useTranslation } from '../../i18n';
 
 const EarningsScreen = () => {
   const dispatch  = useAppDispatch();
+  const { t }     = useTranslation();
   const earnings  = useAppSelector(s => s.rider.earnings);
   const [loading, setLoading] = useState(false);
 
@@ -28,9 +30,9 @@ const EarningsScreen = () => {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const periods = [
-    { label: 'Today',      icon: '☀️', amount: earnings?.today?.amount || 0, count: earnings?.today?.count || 0, color: COLORS.warning },
-    { label: 'This Week',  icon: '💵', amount: earnings?.week?.amount  || 0, count: earnings?.week?.count  || 0, color: COLORS.secondary },
-    { label: 'This Month', icon: '💰', amount: earnings?.month?.amount || 0, count: earnings?.month?.count || 0, color: COLORS.success },
+    { label: t('earnings.today'),     icon: '☀️', amount: earnings?.today?.amount || 0, count: earnings?.today?.count || 0, color: COLORS.warning },
+    { label: t('earnings.thisWeek'),  icon: '💵', amount: earnings?.week?.amount  || 0, count: earnings?.week?.count  || 0, color: COLORS.secondary },
+    { label: t('earnings.thisMonth'), icon: '💰', amount: earnings?.month?.amount || 0, count: earnings?.month?.count || 0, color: COLORS.success },
   ];
 
   const rating = (earnings?.rating || 5.0).toFixed(1);
@@ -46,31 +48,31 @@ const EarningsScreen = () => {
 
         {/* Hero */}
         <View style={styles.hero}>
-          <Text style={styles.heroLabel}>Total Earnings</Text>
+          <Text style={styles.heroLabel}>{t('earnings.total')}</Text>
           <Text style={styles.heroAmount}>{formatCurrency(total)}</Text>
-          <Text style={styles.heroSub}>{totalDeliveries} deliveries completed</Text>
+          <Text style={styles.heroSub}>{t('earnings.completed', { count: totalDeliveries })}</Text>
 
           <View style={styles.heroStats}>
             <View style={styles.heroStat}>
               <Text style={styles.heroStatValue}>{totalDeliveries}</Text>
-              <Text style={styles.heroStatLabel}>Deliveries</Text>
+              <Text style={styles.heroStatLabel}>{t('rider.deliveries')}</Text>
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStat}>
               <Text style={styles.heroStatValue}>⭐ {rating}</Text>
-              <Text style={styles.heroStatLabel}>Rating</Text>
+              <Text style={styles.heroStatLabel}>{t('rider.rating')}</Text>
             </View>
             <View style={styles.heroStatDivider} />
             <View style={styles.heroStat}>
               <Text style={styles.heroStatValue}>{formatCurrency(totalDeliveries > 0 ? total / totalDeliveries : 0)}</Text>
-              <Text style={styles.heroStatLabel}>Avg / Order</Text>
+              <Text style={styles.heroStatLabel}>{t('earnings.avgOrder')}</Text>
             </View>
           </View>
         </View>
 
         {/* Period Cards */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Earnings by Period</Text>
+          <Text style={styles.sectionTitle}>{t('earnings.byPeriod')}</Text>
         </View>
 
         <View style={styles.periodGrid}>
@@ -81,7 +83,7 @@ const EarningsScreen = () => {
               </View>
               <Text style={styles.periodLabel}>{p.label}</Text>
               <Text style={[styles.periodAmount, { color: p.color }]}>{formatCurrency(p.amount)}</Text>
-              <Text style={styles.periodCount}>{p.count} orders</Text>
+              <Text style={styles.periodCount}>{t('earnings.ordersCount', { count: p.count })}</Text>
             </View>
           ))}
         </View>
@@ -89,8 +91,8 @@ const EarningsScreen = () => {
         {/* Rating Card */}
         <View style={styles.ratingCard}>
           <View style={styles.ratingLeft}>
-            <Text style={styles.ratingTitle}>Customer Rating</Text>
-            <Text style={styles.ratingSubtitle}>Based on all completed deliveries</Text>
+            <Text style={styles.ratingTitle}>{t('earnings.customerRating')}</Text>
+            <Text style={styles.ratingSubtitle}>{t('earnings.ratingBased')}</Text>
           </View>
           <View style={styles.ratingRight}>
             <Text style={styles.ratingStars}>{'⭐'.repeat(Math.round(parseFloat(rating)))}</Text>

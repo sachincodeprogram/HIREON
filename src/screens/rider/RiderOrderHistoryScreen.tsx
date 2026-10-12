@@ -9,10 +9,12 @@ import { getMyOrders } from '../../services/orderService';
 import StatusBadge  from '../../components/common/StatusBadge';
 import ScreenHeader from '../../components/navigation/ScreenHeader';
 import { Order } from '../../types';
+import { useTranslation } from '../../i18n';
 import { formatCurrency, formatDateTime, truncateAddress } from '../../utils/formatters';
 
 const RiderOrderHistoryScreen = () => {
   const dispatch = useAppDispatch();
+  const { t }    = useTranslation();
   const orders   = useAppSelector(s => s.order.orders);
   const loading  = useAppSelector(s => s.order.loading);
 
@@ -52,7 +54,7 @@ const RiderOrderHistoryScreen = () => {
 
       {item.status === 'delivered' && (
         <View style={styles.cardBottom}>
-          <Text style={styles.earnedLabel}>Earned</Text>
+          <Text style={styles.earnedLabel}>{t('rider.earned')}</Text>
           <Text style={styles.earnedValue}>{formatCurrency(item.riderEarning || 0)}</Text>
         </View>
       )}
@@ -62,8 +64,8 @@ const RiderOrderHistoryScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScreenHeader
-        title="Delivery History"
-        subtitle={orders.length > 0 ? `${orders.length} deliveries · ${formatCurrency(totalEarned)} earned` : 'Your delivery history'}
+        title={t('rider.deliveryHistory')}
+        subtitle={orders.length > 0 ? t('rider.historySummary', { count: orders.length, amount: formatCurrency(totalEarned) }) : t('orders.historySub')}
         variant="primary"
         rightElement={null}
       />
@@ -78,8 +80,8 @@ const RiderOrderHistoryScreen = () => {
           !loading ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>🚴</Text>
-              <Text style={styles.emptyTitle}>No deliveries yet</Text>
-              <Text style={styles.emptySubtitle}>Your delivery history will appear here</Text>
+              <Text style={styles.emptyTitle}>{t('rider.noDeliveries')}</Text>
+              <Text style={styles.emptySubtitle}>{t('orders.emptySub')}</Text>
             </View>
           ) : null
         }

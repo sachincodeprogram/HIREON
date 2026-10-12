@@ -17,6 +17,7 @@ import { getMyOrders } from '../../services/orderService';
 import Card        from '../../components/common/Card';
 import StatusBadge from '../../components/common/StatusBadge';
 import { formatCurrency, formatDateTime, truncateAddress } from '../../utils/formatters';
+import { useTranslation } from '../../i18n';
 
 const TRACKABLE = ['accepted', 'picked_up', 'in_transit'];
 const SCREEN_W = Dimensions.get('window').width;
@@ -42,6 +43,7 @@ const HeaderBg = () => (
 
 const CustomerDashboard = () => {
   const dispatch   = useAppDispatch();
+  const { t }      = useTranslation();
   const profile    = useAppSelector(s => s.auth.profile);
   const orders     = useAppSelector(s => s.order.orders);
   const loading    = useAppSelector(s => s.order.loading);
@@ -71,14 +73,14 @@ const CustomerDashboard = () => {
   const activeOrders   = orders.filter(o => !['delivered', 'cancelled'].includes(o.status));
   const recentOrders   = orders.slice(0, 5);
   const deliveredCount = orders.filter(o => o.status === 'delivered').length;
-  const firstName      = profile?.name?.split(' ')[0] || 'User';
+  const firstName      = profile?.name?.split(' ')[0] || t('common.user');
   const trackable      = activeOrders.find(o => TRACKABLE.includes(o.status));
 
   const getGreeting = () => {
     const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 12) return t('home.goodMorning');
+    if (h < 17) return t('home.goodAfternoon');
+    return t('home.goodEvening');
   };
 
   const goBook    = () => navigation.navigate('CustomerTabs', { screen: 'BookParcel' } as any);
@@ -90,9 +92,9 @@ const CustomerDashboard = () => {
       : goOrders();
 
   const QUICK = [
-    { key: 'track',   icon: '🛰️', label: 'Track',   bg: COLORS.secondaryBg, onPress: goTrack },
-    { key: 'orders',  icon: '🧾', label: 'Orders',  bg: COLORS.warningBg,   onPress: goOrders },
-    { key: 'profile', icon: '👤', label: 'Profile', bg: COLORS.successBg,   onPress: goProfile },
+    { key: 'track',   icon: '🛰️', label: t('home.track'),   bg: COLORS.secondaryBg, onPress: goTrack },
+    { key: 'orders',  icon: '🧾', label: t('tab.orders'),   bg: COLORS.warningBg,   onPress: goOrders },
+    { key: 'profile', icon: '👤', label: t('tab.profile'),  bg: COLORS.successBg,   onPress: goProfile },
   ];
 
   const renderOrderCard = (order: any, isActive: boolean) => (
@@ -122,7 +124,7 @@ const CustomerDashboard = () => {
       <View style={styles.cardFooter}>
         <Text style={styles.fareText}>{formatCurrency(order.fare.estimated)}</Text>
         {isActive && TRACKABLE.includes(order.status) ? (
-          <View style={styles.trackChip}><Text style={styles.trackChipText}>Track live →</Text></View>
+          <View style={styles.trackChip}><Text style={styles.trackChipText}>{t('home.trackLive')} →</Text></View>
         ) : (
           <Text style={styles.dateText}>{formatDateTime(order.createdAt)}</Text>
         )}
@@ -156,9 +158,9 @@ const CustomerDashboard = () => {
               </TouchableOpacity>
             </View>
             <View style={styles.trustRow}>
-              <Text style={styles.trustText}>⚡ Same-day delivery</Text>
+              <Text style={styles.trustText}>⚡ {t('home.sameDay')}</Text>
               <View style={styles.trustDivider} />
-              <Text style={styles.trustText}>🔒 Secure & tracked</Text>
+              <Text style={styles.trustText}>🔒 {t('home.secure')}</Text>
             </View>
           </View>
         </View>
@@ -166,11 +168,11 @@ const CustomerDashboard = () => {
         {/* ── Floating stats ── */}
         <View style={styles.statsRow}>
           {[
-            { icon: '📦', value: orders.length,      label: 'Total',     tint: COLORS.secondary },
-            { icon: '✅', value: deliveredCount,      label: 'Delivered', tint: COLORS.success },
-            { icon: '🚚', value: activeOrders.length, label: 'Active',    tint: COLORS.primary },
+            { key: 'total', icon: '📦', value: orders.length,      label: t('home.total'),        tint: COLORS.secondary },
+            { key: 'delivered', icon: '✅', value: deliveredCount,      label: t('status.delivered'), tint: COLORS.success },
+            { key: 'active', icon: '🚚', value: activeOrders.length, label: t('profile.active'),   tint: COLORS.primary },
           ].map(s => (
-            <View key={s.label} style={styles.statCard}>
+            <View key={s.key} style={styles.statCard}>
               <View style={[styles.statIconChip, { backgroundColor: s.tint + '16' }]}>
                 <Text style={styles.statIcon}>{s.icon}</Text>
               </View>
@@ -185,8 +187,8 @@ const CustomerDashboard = () => {
           <TouchableOpacity style={styles.bookCta} onPress={goBook} activeOpacity={0.92}>
             <View style={styles.ctaIconBox}><Text style={styles.ctaIcon}>📦</Text></View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.ctaLabel}>READY TO SEND?</Text>
-              <Text style={styles.ctaTitle}>Book a Parcel</Text>
+              <Text style={styles.ctaLabel}>{t('home.readyToSend')}</Text>
+              <Text style={styles.ctaTitle}>{t('home.bookParcel')}</Text>
             </View>
             <View style={styles.ctaArrow}><Text style={styles.ctaArrowGlyph}>→</Text></View>
           </TouchableOpacity>
@@ -209,7 +211,7 @@ const CustomerDashboard = () => {
           <View style={styles.block}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
-                <Text style={styles.sectionTitle}>Active Orders</Text>
+                <Text style={styles.sectionTitle}>{t('home.activeOrders')}</Text>
                 <View style={styles.activePill}><Text style={styles.activePillText}>{activeOrders.length}</Text></View>
               </View>
             </View>
@@ -220,10 +222,10 @@ const CustomerDashboard = () => {
         {/* ── Recent orders ── */}
         <View style={styles.block}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Orders</Text>
+            <Text style={styles.sectionTitle}>{t('home.recentOrders')}</Text>
             {recentOrders.length > 0 && (
               <TouchableOpacity onPress={goOrders} activeOpacity={0.7}>
-                <Text style={styles.seeAll}>See all</Text>
+                <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -233,10 +235,10 @@ const CustomerDashboard = () => {
           ) : recentOrders.length === 0 ? (
             <View style={styles.emptyState}>
               <View style={styles.emptyIconChip}><Text style={styles.emptyIcon}>📭</Text></View>
-              <Text style={styles.emptyTitle}>No orders yet</Text>
-              <Text style={styles.emptySubtitle}>Book your first parcel and it'll show up here</Text>
+              <Text style={styles.emptyTitle}>{t('orders.empty')}</Text>
+              <Text style={styles.emptySubtitle}>{t('home.emptySub')}</Text>
               <TouchableOpacity style={styles.emptyCta} onPress={goBook} activeOpacity={0.88}>
-                <Text style={styles.emptyCtaText}>Book a Parcel</Text>
+                <Text style={styles.emptyCtaText}>{t('home.bookParcel')}</Text>
               </TouchableOpacity>
             </View>
           ) : (

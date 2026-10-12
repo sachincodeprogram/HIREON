@@ -12,6 +12,7 @@ import { setProfile, clearAuth } from '../store/slices/authSlice';
 import { getMyProfile } from '../services/authService';
 import { clearDevPhone } from '../services/apiClient';
 import { disconnectSocket } from '../services/socketService';
+import { useTranslation } from '../i18n';
 
 // Admin ne account block kiya hai — sirf yeh screen dikhao. Har 30s (aur app
 // foreground aane par) status check karo; unblock hote hi profile update hogi aur
@@ -20,6 +21,7 @@ const CHECK_EVERY_MS = 30000;
 
 const AccountBlockedScreen = () => {
   const dispatch = useAppDispatch();
+  const { t }    = useTranslation();
   const profile  = useAppSelector(s => s.auth.profile);
   const [checking, setChecking] = useState(false);
   const [note, setNote] = useState('');
@@ -32,21 +34,21 @@ const AccountBlockedScreen = () => {
     try {
       const p = await getMyProfile();
       dispatch(setProfile(p));
-      if (manual && p.isBlocked) setNote('Your account is still blocked.');
+      if (manual && p.isBlocked) setNote(t('blocked.stillBlocked'));
     } catch {
-      if (manual) setNote('Could not check right now. Please try again.');
+      if (manual) setNote(t('blocked.checkFailed'));
     } finally {
       busy.current = false;
       if (manual) setChecking(false);
     }
-  }, [dispatch]);
+  }, [dispatch, t]);
 
   useEffect(() => {
     // Blocked user ka live connection band — server waise bhi reject karta hai
     disconnectSocket();
-    const t = setInterval(() => { if (AppState.currentState === 'active') checkStatus(); }, CHECK_EVERY_MS);
+    const timer = setInterval(() => { if (AppState.currentState === 'active') checkStatus(); }, CHECK_EVERY_MS);
     const sub = AppState.addEventListener('change', s => { if (s === 'active') checkStatus(); });
-    return () => { clearInterval(t); sub.remove(); };
+    return () => { clearInterval(timer); sub.remove(); };
   }, [checkStatus]);
 
   const handleLogout = async () => {
@@ -66,28 +68,28 @@ const AccountBlockedScreen = () => {
           </Svg>
         </View>
 
-        <Text style={styles.title}>Account blocked</Text>
+        <Text style={styles.title}>{t('blocked.title')}</Text>
         <Text style={styles.subtitle}>
-          {profile?.name ? `Hi ${profile.name.split(' ')[0]}, your` : 'Your'} HIREON account has been blocked by our team.
+          {profile?.name ? t('blocked.msgNamed', { name: profile.name.split(' ')[0] }) : t('blocked.msg')}
           You can't book or deliver orders right now.
         </Text>
 
         {!!profile?.blockReason && (
           <View style={styles.reasonBox}>
-            <Text style={styles.reasonLabel}>Reason</Text>
+            <Text style={styles.reasonLabel}>{t('blocked.reason')}</Text>
             <Text style={styles.reasonText}>{profile.blockReason}</Text>
           </View>
         )}
 
         <Text style={styles.help}>
-          If you think this is a mistake, please contact HIREON support. This screen updates automatically once your account is unblocked.
+          {t('blocked.help')}
         </Text>
       </View>
 
       <View style={styles.footer}>
         {!!note && <Text style={styles.note}>{note}</Text>}
-        <Button title="Check status again" onPress={() => checkStatus(true)} loading={checking} size="lg" />
-        <Button title="Logout" onPress={handleLogout} variant="ghost" style={styles.logout} />
+        <Button title={t('blocked.checkAgain')} onPress={() => checkStatus(true)} loading={checking} size="lg" />
+        <Button title={t('profile.logout')} onPress={handleLogout} variant="ghost" style={styles.logout} />
       </View>
     </SafeAreaView>
   );
