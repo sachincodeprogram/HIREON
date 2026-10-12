@@ -34,6 +34,7 @@ import { Order, Coordinates } from '../../types';
 import { formatCurrency, formatDistance, truncateAddress } from '../../utils/formatters';
 import { translate, useTranslation } from '../../i18n';
 import Sound from 'react-native-sound';
+import SupportButton from '../../components/common/SupportButton';
 
 Sound.setCategory('Playback');
 
@@ -72,7 +73,7 @@ const RiderDashboard = () => {
   // kabhi-kabhi 0 aata hai, header status bar ke peeche chala jaata hai),
   // wahi floor yahan bhi — same header pattern hai.
   const headerTopPad = Math.max(insets.top, 28);
-  const goProfile     = () => navigation.navigate('RiderTabs', { screen: 'Profile' } as any);
+  const goProfile     = () => navigation.navigate('Profile');
 
   const [togglingOnline, setTogglingOnline] = useState(false);
   const [refreshing,     setRefreshing]     = useState(false);
@@ -589,7 +590,7 @@ const RiderDashboard = () => {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: SPACING.xxl }}
+        contentContainerStyle={{ paddingBottom: SPACING.xxl + 64 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={loadCurrent} colors={[COLORS.secondary]} tintColor={COLORS.secondary} progressViewOffset={60} />}>
 
         {/* ── Gradient header ── */}
@@ -598,8 +599,8 @@ const RiderDashboard = () => {
           <View style={{ paddingTop: headerTopPad }}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.greeting}>{t('rider.hey', { name: firstName })} 👋</Text>
-                <Text style={styles.subGreeting}>{t('rider.readyToday')}</Text>
+                <Text style={styles.greeting} numberOfLines={1}>{t('rider.hey', { name: firstName })} 👋</Text>
+                <Text style={styles.subGreeting} numberOfLines={1}>{t('rider.readyToday')}</Text>
               </View>
               <TouchableOpacity
                 style={styles.walletBtn}
@@ -667,6 +668,9 @@ const RiderDashboard = () => {
           )}
         </View>
       </ScrollView>
+
+      {/* Help & Support — floating, Profile tab ke upar */}
+      <SupportButton accent={COLORS.secondary} />
 
       {/* ─── New Order Ring Modal ─── */}
       <Modal visible={!!ringOrder} transparent animationType="slide" onRequestClose={() => { if (ringOrder) handleDecline(ringOrder._id); }}>

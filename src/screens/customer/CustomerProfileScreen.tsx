@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import auth from '@react-native-firebase/auth';
 import { COLORS } from '../../constants/api';
 import useAppSelector from '../../hooks/useAppSelector';
@@ -13,10 +14,12 @@ import Button from '../../components/common/Button';
 import { updateProfile, deleteAccount } from '../../services/authService';
 import { setProfile } from '../../store/slices/authSlice';
 import { LanguageSettingRow } from '../../components/common/LanguagePicker';
+import { SupportSettingRow } from '../../components/common/SupportButton';
 import { useTranslation } from '../../i18n';
 
 const CustomerProfileScreen = () => {
   const dispatch = useAppDispatch();
+  const navigation = useNavigation();
   const { t }    = useTranslation();
   const profile  = useAppSelector(s => s.auth.profile);
   const orders   = useAppSelector(s => s.order.orders);
@@ -93,6 +96,10 @@ const CustomerProfileScreen = () => {
 
         {/* Hero */}
         <View style={styles.hero}>
+          {/* Profile ab alag screen hai (tab nahi) — wapas jaane ka button */}
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
+            <Text style={styles.backArrow}>‹</Text>
+          </TouchableOpacity>
           <View style={styles.avatarRing}>
             <View style={styles.avatarCircle}>
               <Text style={styles.avatarText}>{initial}</Text>
@@ -169,6 +176,14 @@ const CustomerProfileScreen = () => {
           </Card>
         </View>
 
+        {/* Help & Support */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>{t('support.title')}</Text>
+          <Card>
+            <SupportSettingRow accent={COLORS.primary} bg={COLORS.primaryBg} />
+          </Card>
+        </View>
+
         {/* Logout */}
         <View style={styles.section}>
           <Button title={t('profile.logout')} onPress={handleLogout} variant="danger" />
@@ -190,6 +205,11 @@ const CustomerProfileScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
+  backBtn: {
+    position: 'absolute', top: 30, left: 16, width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center',
+  },
+  backArrow: { color: '#fff', fontSize: 30, fontWeight: '300', marginTop: -3 },
   hero: {
     backgroundColor: COLORS.primary,
     alignItems: 'center',

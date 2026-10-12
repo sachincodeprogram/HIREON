@@ -13,6 +13,8 @@ import RiderProfileScreen   from '../screens/rider/RiderProfileScreen';
 import ActiveDeliveryScreen from '../screens/rider/ActiveDeliveryScreen';
 import NavigationScreen     from '../screens/rider/NavigationScreen';
 import WalletScreen         from '../screens/rider/WalletScreen';
+import SupportHomeScreen    from '../screens/support/SupportHomeScreen';
+import SupportChatScreen    from '../screens/support/SupportChatScreen';
 
 const Tab   = createBottomTabNavigator<RiderTabParamList>();
 const Stack = createNativeStackNavigator<RiderStackParamList>();
@@ -26,7 +28,6 @@ const RiderTabs = () => {
       <Tab.Screen name="Dashboard" component={RiderDashboard}      options={{ title: t('tab.home') }} />
       <Tab.Screen name="History"   component={RiderOrderHistory}   options={{ title: t('tab.history') }} />
       <Tab.Screen name="Earnings"  component={EarningsScreen}      options={{ title: t('tab.earnings') }} />
-      <Tab.Screen name="Profile"   component={RiderProfileScreen}  options={{ title: t('tab.profile') }} />
     </Tab.Navigator>
   );
 };
@@ -37,6 +38,10 @@ const RiderNavigator = () => (
     <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} options={{ animation: 'slide_from_bottom' }} />
     <Stack.Screen name="Navigation"     component={NavigationScreen}     options={{ animation: 'slide_from_bottom' }} />
     <Stack.Screen name="Wallet"         component={WalletScreen}         options={{ animation: 'slide_from_right' }} />
+    {/* Profile bottom tab me nahi — header ke avatar se khulta hai */}
+    <Stack.Screen name="Profile"        component={RiderProfileScreen}   options={{ animation: 'slide_from_right' }} />
+    <Stack.Screen name="Support"        component={SupportHomeScreen}    options={{ animation: 'slide_from_right' }} />
+    <Stack.Screen name="SupportChat"    component={SupportChatScreen}    options={{ animation: 'slide_from_right' }} />
   </Stack.Navigator>
 );
 

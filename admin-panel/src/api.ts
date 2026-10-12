@@ -1,4 +1,4 @@
-// HIREON backend ke admin endpoints (/api/v1/admin/*) — read calls + sirf block/unblock write.
+// HIREON backend ke admin endpoints (/api/v1/admin/*) — read calls + block/unblock aur support ticket ke jawab.
 // Admin key kabhi bundle me nahi jaati: login par user type karta hai, sessionStorage me
 // rehti hai (tab band = key gayi).
 
@@ -100,7 +100,7 @@ export const clearKey = () => {
 
 type Params = Record<string, string | number | undefined>
 
-async function request<T>(method: 'GET' | 'PATCH', path: string, opts: { params?: Params; body?: unknown; key?: string | null } = {}): Promise<T> {
+async function request<T>(method: 'GET' | 'PATCH' | 'POST', path: string, opts: { params?: Params; body?: unknown; key?: string | null } = {}): Promise<T> {
   const qs = new URLSearchParams()
   Object.entries(opts.params ?? {}).forEach(([k, v]) => { if (v !== undefined && v !== '') qs.set(k, String(v)) })
   const query = qs.toString()
@@ -175,6 +175,66 @@ export interface ActivityEvent {
 
 export interface ActivityData { serverTime: string; since: string; events: ActivityEvent[] }
 
+export type SupportStatus = 'open' | 'in_progress' | 'resolved' | 'closed'
+export type SupportCategory = 'order_issue' | 'payment' | 'wallet' | 'behaviour' | 'account' | 'app_bug' | 'other'
+
+export interface SupportMessage { _id: string; sender: 'user' | 'support' | 'system'; text: string; createdAt: string }
+
+export interface SupportUser {
+  _id: string
+  name: string
+  phone?: string
+  email?: string
+  role: 'customer' | 'rider'
+  avatar?: string
+  isBlocked?: boolean
+  vehicleType?: string
+  vehicleNumber?: string
+  createdAt?: string
+}
+
+export interface SupportTicketRow {
+  _id: string
+  ticketNo: string
+  category: SupportCategory
+  status: SupportStatus
+  role: 'customer' | 'rider'
+  orderCode?: string
+  subject: string
+  lastMessage: { sender: SupportMessage['sender']; text: string; createdAt: string } | null
+  adminUnread: boolean
+  messageCount: number
+  lastMessageAt: string
+  createdAt: string
+  user: SupportUser | null
+}
+
+export interface SupportTicket {
+  _id: string
+  ticketNo: string
+  category: SupportCategory
+  status: SupportStatus
+  role: 'customer' | 'rider'
+  orderCode?: string
+  order: { _id: string; orderId: string; status: OrderStatus; fare?: { estimated: number; final: number }; paymentMethod?: string; createdAt: string; pickup?: { address: string }; delivery?: { address: string } } | null
+  user: SupportUser | null
+  messages: SupportMessage[]
+  platform?: string
+  appVersion?: string
+  resolvedAt?: string | null
+  lastMessageAt: string
+  createdAt: string
+}
+
+export interface SupportList {
+  items: SupportTicketRow[]
+  total: number
+  page: number
+  pages: number
+  counts: Partial<Record<SupportStatus, number>>
+  unread: number
+}
+
 export const api = {
   stats: (key?: string) => get<Stats>('/stats', {}, key),
 
@@ -194,6 +254,19 @@ export const api = {
 
   blockUser: (id: string, reason: string) =>
     request<{ user: User; activeOrders: number }>('PATCH', '/users/' + encodeURIComponent(id) + '/block', { body: { reason } }),
+
+  supportTickets: async (p: { status?: string; page?: number; limit?: number } = {}): Promise<SupportList> => {
+    const d = await get<{ tickets: SupportTicketRow[]; total: number; page: number; pages: number; counts: SupportList['counts']; unread: number }>('/support/tickets', p)
+    return { items: d.tickets, total: d.total, page: d.page, pages: d.pages, counts: d.counts, unread: d.unread }
+  },
+
+  supportTicket: (id: string) => get<SupportTicket>('/support/tickets/' + encodeURIComponent(id)),
+
+  supportReply: (id: string, message: string) =>
+    request<SupportTicket>('POST', '/support/tickets/' + encodeURIComponent(id) + '/reply', { body: { message } }),
+
+  supportStatus: (id: string, status: SupportStatus) =>
+    request<SupportTicket>('PATCH', '/support/tickets/' + encodeURIComponent(id) + '/status', { body: { status } }),
 
   unblockUser: (id: string, reason: string) =>
     request<{ user: User }>('PATCH', '/users/' + encodeURIComponent(id) + '/unblock', { body: { reason } }),

@@ -141,3 +141,40 @@ export interface RazorpayOrder {
   currency: string;
   keyId: string;
 }
+
+// ── Help & Support ──────────────────────────────────────────────────────────
+export type SupportCategory = 'order_issue' | 'payment' | 'wallet' | 'behaviour' | 'account' | 'app_bug' | 'other';
+export type SupportStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+
+export interface SupportMessage {
+  _id: string;
+  sender: 'user' | 'support' | 'system';
+  text: string;
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  _id: string;
+  ticketNo: string;
+  category: SupportCategory;
+  status: SupportStatus;
+  orderCode?: string;
+  messages: SupportMessage[];
+  userUnread?: boolean;
+  lastMessageAt: string;
+  createdAt: string;
+}
+
+/** Ticket list ka halka roop (poori conversation ke bina) */
+export interface SupportTicketSummary {
+  _id: string;
+  ticketNo: string;
+  category: SupportCategory;
+  status: SupportStatus;
+  orderCode?: string;
+  subject: string;
+  lastMessage: { sender: SupportMessage['sender']; text: string; createdAt: string } | null;
+  userUnread?: boolean;
+  lastMessageAt: string;
+  createdAt: string;
+}

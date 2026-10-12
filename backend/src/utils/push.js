@@ -134,4 +134,42 @@ const sendRingWithdrawPush = async (fcmToken, orderId, reason) => {
   }
 };
 
-module.exports = { sendOrderPush, sendAddressChangePush, sendCancelPush, sendRingWithdrawPush };
+// Support team ne ticket par jawab diya — user ko notification (app band ho
+// tab bhi dikhe, isliye notification payload). Tap karne par app khulti hai.
+const sendSupportReplyPush = async (fcmToken, ticket, text) => {
+  if (!fcmToken) return null;
+  try {
+    const body = String(text || '').replace(/\s+/g, ' ').slice(0, 120);
+    await messaging().send({
+      token: fcmToken,
+      notification: {
+        title: `HIREON Support · ${ticket.ticketNo}`,
+        body: body || 'You have a new reply from our support team',
+      },
+      data: {
+        type: 'support_reply',
+        ticketId: ticket._id.toString(),
+        ticketNo: String(ticket.ticketNo),
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'order_updates',
+          sound: 'default',
+          defaultVibrateTimings: true,
+          visibility: 'public',
+        },
+      },
+    });
+    return 'sent';
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      return 'invalid-token';
+    }
+    console.warn('[PUSH] support-reply send failed:', e.message);
+    return null;
+  }
+};
+
+module.exports = { sendOrderPush, sendAddressChangePush, sendCancelPush, sendRingWithdrawPush, sendSupportReplyPush };

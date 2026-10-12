@@ -18,6 +18,7 @@ import Card        from '../../components/common/Card';
 import StatusBadge from '../../components/common/StatusBadge';
 import { formatCurrency, formatDateTime, truncateAddress } from '../../utils/formatters';
 import { useTranslation } from '../../i18n';
+import SupportButton from '../../components/common/SupportButton';
 
 const TRACKABLE = ['accepted', 'picked_up', 'in_transit'];
 const SCREEN_W = Dimensions.get('window').width;
@@ -85,7 +86,7 @@ const CustomerDashboard = () => {
 
   const goBook    = () => navigation.navigate('CustomerTabs', { screen: 'BookParcel' } as any);
   const goOrders  = () => navigation.navigate('CustomerTabs', { screen: 'History' } as any);
-  const goProfile = () => navigation.navigate('CustomerTabs', { screen: 'Profile' } as any);
+  const goProfile = () => navigation.navigate('Profile' as any);
   const goTrack   = () =>
     trackable
       ? navigation.navigate('LiveTracking', { orderId: trackable._id })
@@ -137,7 +138,7 @@ const CustomerDashboard = () => {
       <StatusBar backgroundColor="transparent" translucent barStyle="light-content" />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: SPACING.xxl }}
+        contentContainerStyle={{ paddingBottom: SPACING.xxl + 64 }}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={loadOrders} colors={[COLORS.primary]} tintColor={COLORS.primary} progressViewOffset={60} />}>
 
         {/* ── Gradient header ── */}
@@ -146,7 +147,7 @@ const CustomerDashboard = () => {
           <View style={{ paddingTop: headerTopPad }}>
             <View style={styles.headerRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.greeting}>{getGreeting()},</Text>
+                <Text style={styles.greeting} numberOfLines={1}>{getGreeting()},</Text>
                 <Text style={styles.name} numberOfLines={1}>{firstName} 👋</Text>
               </View>
               <TouchableOpacity style={styles.iconBtn} onPress={goOrders} activeOpacity={0.8}>
@@ -247,6 +248,9 @@ const CustomerDashboard = () => {
         </View>
 
       </ScrollView>
+
+      {/* Help & Support — floating, Profile tab ke upar */}
+      <SupportButton accent={COLORS.primary} />
     </View>
   );
 };

@@ -36,4 +36,6 @@ export const IconCommand = base(<path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V
 export const IconClock = base(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>)
 export const IconMap = base(<><path d="M9 3 3 5v16l6-2 6 2 6-2V3l-6 2-6-2Z" /><path d="M9 3v16" /><path d="M15 5v16" /></>)
 export const IconBan = base(<><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>)
+export const IconHeadset = base(<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />)
+export const IconSend = base(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7Z" /></>)
 export const IconMoon = base(<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />)

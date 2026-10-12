@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement, type SVGProps } from 'react'
+import { api } from '../api'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { useData } from '../data'
@@ -8,11 +9,11 @@ import CommandPalette from './CommandPalette'
 import OrderDrawer from '../pages/OrderDrawer'
 import UserDrawer from '../pages/UserDrawer'
 import {
-  IconActivity, IconBike, IconBox, IconChart, IconMap, IconDashboard, IconLogout, IconMenu, IconMoon, IconRefresh,
+  IconActivity, IconBike, IconBox, IconChart, IconHeadset, IconMap, IconDashboard, IconLogout, IconMenu, IconMoon, IconRefresh,
   IconSearch, IconServer, IconSun, IconUsers,
 } from './icons'
 
-interface NavItem { to: string; label: string; icon: (p: SVGProps<SVGSVGElement>) => ReactElement; end?: boolean; badge?: 'active' | 'online' }
+interface NavItem { to: string; label: string; icon: (p: SVGProps<SVGSVGElement>) => ReactElement; end?: boolean; badge?: 'active' | 'online' | 'support' }
 
 const SECTIONS: { title: string; items: NavItem[] }[] = [
   { title: 'Overview', items: [
@@ -23,6 +24,7 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
     { to: '/activity', label: 'Live activity', icon: IconActivity },
     { to: '/live', label: 'Live tracking', icon: IconMap, badge: 'active' },
     { to: '/orders', label: 'Orders', icon: IconBox },
+    { to: '/support', label: 'Support', icon: IconHeadset, badge: 'support' },
   ] },
   { title: 'People', items: [
     { to: '/riders', label: 'Riders', icon: IconBike, badge: 'online' },
@@ -46,6 +48,8 @@ export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [theme, setTheme] = useState<Theme>(() => (document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light'))
   const [, tick] = useState(0)
+  // Support ke jin tickets par jawab baaki hai — sidebar badge
+  const [supportUnread, setSupportUnread] = useState<number | undefined>(undefined)
   const loc = useLocation()
 
   useEffect(() => { setNavOpen(false); setMenuOpen(false) }, [loc.pathname])
@@ -53,6 +57,16 @@ export default function Layout() {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem(THEME_KEY, theme) } catch { /* ignore */ }
   }, [theme])
+
+  useEffect(() => {
+    let alive = true
+    const check = () => api.supportTickets({ limit: 1 })
+      .then(d => { if (alive) setSupportUnread(d.unread || undefined) })
+      .catch(() => { /* backend purana — badge mat dikhao */ })
+    check()
+    const t = setInterval(check, 60_000)
+    return () => { alive = false; clearInterval(t) }
+  }, [loc.pathname])
 
   // "Updated 20s ago" label ko taaza rakho
   useEffect(() => { const t = setInterval(() => tick(x => x + 1), 15_000); return () => clearInterval(t) }, [])
@@ -73,6 +87,7 @@ export default function Layout() {
   const badges = {
     active: data.stats?.orders.active,
     online: data.riders.filter(r => r.isOnline).length || undefined,
+    support: supportUnread,
   }
   const order = detail.orderId ? data.orders.find(o => o._id === detail.orderId) ?? null : null
   const user = detail.userId ? [...data.riders, ...data.customers].find(u => u._id === detail.userId) ?? null : null
@@ -112,7 +127,7 @@ export default function Layout() {
         <div className="sidebar-foot">
           <div className="readonly-note">
             <span className="dot-live" /> Admin access
-            <p>Only account blocking can change data. Every block and unblock is recorded.</p>
+            <p>Only account blocking and support replies change data. Every block and unblock is recorded.</p>
           </div>
         </div>
       </aside>

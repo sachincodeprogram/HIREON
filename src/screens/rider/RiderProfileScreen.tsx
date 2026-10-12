@@ -18,6 +18,7 @@ import { updateProfile, deleteAccount } from '../../services/authService';
 import { RINGTONES, Ringtone } from '../../constants/ringtones';
 import { getSavedRingtoneId, saveRingtoneId } from '../../services/ringtoneService';
 import { LanguageSettingRow } from '../../components/common/LanguagePicker';
+import { SupportSettingRow } from '../../components/common/SupportButton';
 import { TranslationKey, useTranslation } from '../../i18n';
 
 Sound.setCategory('Playback');
@@ -148,6 +149,10 @@ const RiderProfileScreen = () => {
 
         {/* Hero */}
         <View style={styles.hero}>
+          {/* Profile ab alag screen hai (tab nahi) — wapas jaane ka button */}
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} activeOpacity={0.8} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
+            <Text style={styles.backArrow}>‹</Text>
+          </TouchableOpacity>
           <View style={styles.avatarRing}>
             <View style={styles.avatarCircle}>
               <Text style={styles.avatarText}>{initial}</Text>
@@ -274,6 +279,14 @@ const RiderProfileScreen = () => {
           </Card>
         </View>
 
+        {/* Help & Support */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { marginBottom: 10 }]}>{t('support.title')}</Text>
+          <Card>
+            <SupportSettingRow accent={COLORS.secondary} bg={COLORS.secondaryBg} />
+          </Card>
+        </View>
+
         <View style={styles.section}>
           <Button title={t('profile.logout')} onPress={handleLogout} variant="danger" />
         </View>
@@ -294,6 +307,11 @@ const RiderProfileScreen = () => {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
+  backBtn: {
+    position: 'absolute', top: 30, left: 16, width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center',
+  },
+  backArrow: { color: '#fff', fontSize: 30, fontWeight: '300', marginTop: -3 },
   hero: {
     backgroundColor: COLORS.secondary,
     alignItems: 'center',

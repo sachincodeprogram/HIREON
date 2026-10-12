@@ -18,26 +18,30 @@ export type CustomerTabParamList = {
   Dashboard:  undefined;
   BookParcel: undefined;
   History:    undefined;
-  Profile:    undefined;
 };
 
 export type CustomerStackParamList = {
   CustomerTabs:  undefined;
   FareEstimate:  { pickup: LocationInfo; delivery: LocationInfo; parcel: ParcelInfo; estimate: FareEstimate; paymentMethod: PaymentMethod };
   LiveTracking:  { orderId: string };
+  Profile:       undefined;
+  Support:       undefined;
+  SupportChat:   { ticketId?: string };
 };
 
 export type RiderTabParamList = {
   Dashboard: undefined;
   History:   undefined;
   Earnings:  undefined;
-  Profile:   undefined;
 };
 
 export type RiderStackParamList = {
   RiderTabs:      undefined;
   ActiveDelivery: { orderId: string };
   Wallet:         undefined;
+  Profile:        undefined;
+  Support:        undefined;
+  SupportChat:    { ticketId?: string };
   Navigation: {
     orderId:            string;
     destination:        { lat: number; lng: number };
