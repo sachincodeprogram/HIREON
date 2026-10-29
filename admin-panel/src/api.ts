@@ -1,4 +1,5 @@
-// HIREON backend ke admin endpoints (/api/v1/admin/*) — read calls + block/unblock aur support ticket ke jawab.
+// HIREON backend ke admin endpoints (/api/v1/admin/*) — read calls + block/unblock, support ticket ke jawab
+// aur rider wallet credit.
 // Admin key kabhi bundle me nahi jaati: login par user type karta hai, sessionStorage me
 // rehti hai (tab band = key gayi).
 
@@ -154,11 +155,14 @@ export interface ActivityRef { _id: string; name: string; role?: 'customer' | 'r
 
 export interface ActivityEvent {
   id: string
-  type: 'order' | 'signup' | 'block' | 'unblock' | 'rider_online' | 'rider_offline'
+  type: 'order' | 'signup' | 'block' | 'unblock' | 'rider_online' | 'rider_offline' | 'wallet_credit'
   at: string
   status?: string
   note?: string
   reason?: string
+  /** wallet_credit: paise */
+  amount?: number
+  category?: WalletCategory
   user?: ActivityRef
   order?: {
     _id: string
@@ -235,6 +239,48 @@ export interface SupportList {
   unread: number
 }
 
+// Wallet amounts hamesha PAISE me (backend jaisa) — ₹100 = 10000
+export type WalletCategory = 'incentive' | 'bonus' | 'promo' | 'refund' | 'compensation' | 'adjustment' | 'other'
+
+export interface WalletBalances {
+  minBalance: number
+  maxCredit: number
+  wallets: { rider: string; balance: number; updatedAt: string }[]
+}
+
+export interface WalletTxn {
+  _id: string
+  type: 'EARNING' | 'COMMISSION_DEBIT' | 'RECHARGE' | 'REFUND'
+  amount: number
+  balanceAfter: number
+  order?: { _id: string; orderId: string } | null
+  description?: string
+  source?: 'system' | 'razorpay' | 'admin'
+  adminCategory?: WalletCategory | ''
+  createdAt: string
+}
+
+export interface RiderWallet { balance: number; minBalance: number; maxCredit: number; transactions: WalletTxn[] }
+
+export interface WalletCreditInput {
+  riderIds?: string[]
+  all?: boolean
+  amountPaise: number
+  category: WalletCategory
+  note: string
+  requestId: string
+}
+
+export interface WalletCreditResult {
+  requestId: string
+  amountPaise: number
+  category: WalletCategory
+  credited: { _id: string; name: string; balance: number; duplicate: boolean }[]
+  skipped: { _id: string; name: string; reason: string }[]
+  failed: { _id: string; name: string; error: string }[]
+  totalPaise: number
+}
+
 export const api = {
   stats: (key?: string) => get<Stats>('/stats', {}, key),
 
@@ -270,4 +316,10 @@ export const api = {
 
   unblockUser: (id: string, reason: string) =>
     request<{ user: User }>('PATCH', '/users/' + encodeURIComponent(id) + '/unblock', { body: { reason } }),
+
+  walletBalances: () => get<WalletBalances>('/wallets'),
+
+  riderWallet: (id: string) => get<RiderWallet>('/riders/' + encodeURIComponent(id) + '/wallet', { limit: 30 }),
+
+  creditWallets: (input: WalletCreditInput) => request<WalletCreditResult>('POST', '/wallets/credit', { body: input }),
 }

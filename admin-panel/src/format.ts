@@ -2,7 +2,10 @@ import type { OrderStatus } from './api'
 
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 })
 export const money = (n: number | undefined) => inr.format(n || 0)
-export const num = (n: number | undefined) => (n || 0).toLocaleString('en-IN')
+// Wallet paise me rehta hai — paisa bhi dikhao (₹12.50), poore rupaye par decimal nahi
+const inrPaise = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+export const paise = (p: number | undefined) => (p || 0) % 100 === 0 ? inr.format((p || 0) / 100) : inrPaise.format((p || 0) / 100)
+export const num =(n: number | undefined) => (n || 0).toLocaleString('en-IN')
 
 export const dateTime = (s?: string) =>
   s ? new Date(s).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'

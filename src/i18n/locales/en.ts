@@ -405,6 +405,7 @@ const en = {
   'wallet.txnRecharge':     'Wallet Recharge',
   'wallet.txnRefund':       'Refund',
   'wallet.txnCommission':   'Commission',
+  'wallet.txnAdminCredit':  'Added by HIREON',
 
   // ── Active delivery (rider) ──
   'active.addrChanged':       'Delivery Address Changed',

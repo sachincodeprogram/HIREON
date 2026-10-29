@@ -127,7 +127,7 @@ export default function Layout() {
         <div className="sidebar-foot">
           <div className="readonly-note">
             <span className="dot-live" /> Admin access
-            <p>Only account blocking and support replies change data. Every block and unblock is recorded.</p>
+            <p>Only account blocking, wallet credits and support replies change data. Every action is recorded.</p>
           </div>
         </div>
       </aside>

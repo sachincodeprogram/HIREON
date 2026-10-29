@@ -3,16 +3,16 @@ import { api, ApiError, type ActivityEvent } from '../api'
 import { useAuth } from '../auth'
 import { useData } from '../data'
 import { useDetail } from '../nav'
-import { ago, dateTime, money } from '../format'
+import { ago, dateTime, money, paise } from '../format'
 import { Card, Empty, ErrorBox, MiniStat, PageHeader, Pill, Segmented } from '../components/ui'
-import { IconBan, IconBike, IconBox, IconCheck, IconPin, IconRupee, IconShield, IconUsers, IconX } from '../components/icons'
+import { IconBan, IconBike, IconBox, IconCheck, IconPin, IconRupee, IconShield, IconUsers, IconWallet, IconX } from '../components/icons'
 
 // Live Activity — app me jo bhi ho raha hai (order, signup, rider duty, block) wo yahan
 // har 10 second me aata hai. Sirf naye events maange jaate hain (since=last), poora list nahi.
 const POLL_MS = 10_000
 const MAX_EVENTS = 500
 
-type Filter = 'all' | 'orders' | 'riders' | 'signups' | 'moderation'
+type Filter = 'all' | 'orders' | 'riders' | 'signups' | 'moderation' | 'wallet'
 type Tone = 'good' | 'warn' | 'bad' | 'info' | 'neutral'
 interface View { title: string; detail: string; tone: Tone; icon: (p: SVGProps<SVGSVGElement>) => ReactElement }
 
@@ -21,7 +21,8 @@ const matches = (e: ActivityEvent, f: Filter) =>
   (f === 'orders' && e.type === 'order') ||
   (f === 'riders' && (e.type === 'rider_online' || e.type === 'rider_offline')) ||
   (f === 'signups' && e.type === 'signup') ||
-  (f === 'moderation' && (e.type === 'block' || e.type === 'unblock'))
+  (f === 'moderation' && (e.type === 'block' || e.type === 'unblock')) ||
+  (f === 'wallet' && e.type === 'wallet_credit')
 
 function describe(e: ActivityEvent): View {
   const o = e.order
@@ -35,6 +36,8 @@ function describe(e: ActivityEvent): View {
       return { title: `${who(e.user)} was unblocked`, detail: e.reason || 'Access restored', tone: 'good', icon: IconShield }
     case 'rider_online':
       return { title: `${who(e.user, 'A rider')} went online`, detail: 'Available for new orders', tone: 'good', icon: IconBike }
+    case 'wallet_credit':
+      return { title: `${paise(e.amount)} added to ${who(e.user, 'a rider')}’s wallet`, detail: e.reason || 'Credited by admin', tone: 'good', icon: IconWallet }
     case 'rider_offline':
       return { title: `${who(e.user, 'A rider')} went offline`, detail: 'Stopped taking orders', tone: 'neutral', icon: IconBike }
   }
@@ -135,8 +138,8 @@ export default function Activity() {
   }, [fresh])
 
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: events.length, orders: 0, riders: 0, signups: 0, moderation: 0 }
-    for (const e of events) (['orders', 'riders', 'signups', 'moderation'] as const).forEach(f => { if (matches(e, f)) c[f]++ })
+    const c: Record<Filter, number> = { all: events.length, orders: 0, riders: 0, signups: 0, moderation: 0, wallet: 0 }
+    for (const e of events) (['orders', 'riders', 'signups', 'moderation', 'wallet'] as const).forEach(f => { if (matches(e, f)) c[f]++ })
     return c
   }, [events])
 
@@ -198,6 +201,7 @@ export default function Activity() {
             { value: 'riders', label: 'Riders', count: counts.riders },
             { value: 'signups', label: 'Signups', count: counts.signups },
             { value: 'moderation', label: 'Blocks', count: counts.moderation },
+            { value: 'wallet', label: 'Wallet', count: counts.wallet },
           ]} />
         }
       >

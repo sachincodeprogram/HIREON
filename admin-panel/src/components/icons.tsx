@@ -38,4 +38,6 @@ export const IconMap = base(<><path d="M9 3 3 5v16l6-2 6 2 6-2V3l-6 2-6-2Z" /><p
 export const IconBan = base(<><circle cx="12" cy="12" r="9" /><path d="m5.6 5.6 12.8 12.8" /></>)
 export const IconHeadset = base(<path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3" />)
 export const IconSend = base(<><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7Z" /></>)
-export const IconMoon = base(<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />)
+export const IconWallet = base(<><path d="M19 7V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3" /><path d="M3 7h16a2 2 0 0 1 2 2v3h-5a2 2 0 0 0 0 4h5" /></>)
+export const IconPlus = base(<><path d="M12 5v14" /><path d="M5 12h14" /></>)
+export const IconMoon =base(<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />)

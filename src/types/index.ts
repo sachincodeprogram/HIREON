@@ -132,6 +132,8 @@ export interface WalletTransaction {
   balanceAfter: number;
   order?: { _id: string; orderId: string } | string | null;
   description: string;
+  // 'admin' = HIREON team ne admin panel se credit kiya (bonus/refund/incentive)
+  source?: 'system' | 'razorpay' | 'admin';
   createdAt: string;
 }
 

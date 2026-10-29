@@ -19,7 +19,7 @@ async function getOrCreateWallet(riderId, session) {
 // liye pehle se entry hai), pura transaction abort ho jaata hai aur balance
 // $inc bhi rollback ho jaata hai. Isse double credit/debit kabhi nahi hota,
 // chahe webhook 2 baar aaye ya confirm-delivery retry ho jaaye.
-async function applyWalletEntry({ riderId, type, amountPaise, direction, orderId, razorpayOrderId, razorpayPaymentId, description }) {
+async function applyWalletEntry({ riderId, type, amountPaise, direction, orderId, razorpayOrderId, razorpayPaymentId, description, source, adminCategory, requestId }) {
   if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
     throw new Error('amountPaise must be a positive integer (paise)');
   }
@@ -48,6 +48,9 @@ async function applyWalletEntry({ riderId, type, amountPaise, direction, orderId
           razorpayOrderId:   razorpayOrderId || null,
           razorpayPaymentId: razorpayPaymentId || null,
           description: description || '',
+          source:        source || (razorpayPaymentId ? 'razorpay' : 'system'),
+          adminCategory: adminCategory || '',
+          requestId:     requestId || null,
         }], { session });
         result = { wallet: updatedWallet, transaction: txn, duplicate: false };
       } catch (err) {
@@ -61,7 +64,9 @@ async function applyWalletEntry({ riderId, type, amountPaise, direction, orderId
   } catch (err) {
     if (err.isDuplicate) {
       const existing = await WalletTransaction.findOne(
-        razorpayPaymentId ? { razorpayPaymentId } : { order: orderId, type }
+        razorpayPaymentId ? { razorpayPaymentId }
+          : requestId ? { requestId, rider: riderId }
+          : { order: orderId, type }
       );
       const wallet = await Wallet.findOne({ rider: riderId });
       return { wallet, transaction: existing, duplicate: true };

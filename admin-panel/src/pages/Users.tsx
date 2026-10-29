@@ -3,15 +3,16 @@ import type { User } from '../api'
 import { useData } from '../data'
 import { useDetail } from '../nav'
 import { downloadCsv, statsBy, toCsv, type PersonStats } from '../analytics'
-import { ago, date, money, num } from '../format'
+import { ago, date, money, num, paise } from '../format'
+import WalletDialog, { type WalletTarget } from '../components/WalletDialog'
 import {
   Avatar, Card, Empty, ErrorBox, Kpi, Notice, PageHeader, Pagination, Pill, Segmented, SkeletonRows, SortTh, useSortedPaged,
 } from '../components/ui'
-import { IconDownload, IconSearch, IconStar, IconX } from '../components/icons'
+import { IconDownload, IconPlus, IconSearch, IconStar, IconWallet, IconX } from '../components/icons'
 
-type RiderKey = 'name' | 'deliveries' | 'earnings' | 'rating' | 'joined'
+type RiderKey = 'name' | 'deliveries' | 'earnings' | 'wallet' | 'rating' | 'joined'
 type CustKey = 'name' | 'orders' | 'spend' | 'last' | 'joined'
-type Filter = 'all' | 'online' | 'offline' | 'active' | 'inactive' | 'blocked' | 'deleted'
+type Filter = 'all' | 'online' | 'offline' | 'active' | 'inactive' | 'low_wallet' | 'blocked' | 'deleted'
 
 const EMPTY: PersonStats = { orders: 0, delivered: 0, cancelled: 0, spend: 0 }
 
@@ -23,6 +24,10 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
   const [q, setQ] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const loading = d.loading && !d.lastUpdated
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [walletTarget, setWalletTarget] = useState<WalletTarget | null>(null)
+  const w = isRider ? d.wallets : null
+  const bal = (u: User) => w?.balances.get(u._id) ?? 0
 
   const stats = useMemo(() => statsBy(d.orders, role), [d.orders, role])
   const st = (u: User) => stats.get(u._id) ?? EMPTY
@@ -36,16 +41,17 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
         case 'offline': return !u.isOnline
         case 'active': return (stats.get(u._id)?.orders ?? 0) > 0
         case 'inactive': return !(stats.get(u._id)?.orders)
+        case 'low_wallet': return !!w && (w.balances.get(u._id) ?? 0) < w.minBalance
         case 'blocked': return !!u.isBlocked
         case 'deleted': return !!u.deletedAt
         default: return true
       }
     })
-  }, [people, q, filter, stats])
+  }, [people, q, filter, stats, w])
 
   const riderSort = useSortedPaged<User, RiderKey>(rows, {
     name: u => u.name.toLowerCase(), deliveries: u => u.totalDeliveries || 0, earnings: u => u.totalEarnings || 0,
-    rating: u => u.rating ?? 5, joined: u => u.createdAt,
+    wallet: u => bal(u), rating: u => u.rating ?? 5, joined: u => u.createdAt,
   }, { key: 'joined', dir: 'desc' })
   const custSort = useSortedPaged<User, CustKey>(rows, {
     name: u => u.name.toLowerCase(), orders: u => st(u).orders, spend: u => st(u).spend, last: u => st(u).last ?? '', joined: u => u.createdAt,
@@ -62,7 +68,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
   const exportCsv = () => downloadCsv('hireon-' + role + 's-' + new Date().toISOString().slice(0, 10) + '.csv', toCsv(
     (isRider ? riderSort.sorted : custSort.sorted).map(u => isRider ? {
       name: u.name, phone: u.phone, email: u.email, vehicle_type: u.vehicleType, vehicle_number: u.vehicleNumber,
-      online: u.isOnline, blocked: !!u.isBlocked, block_reason: u.blockReason ?? '', deliveries: u.totalDeliveries, earnings: u.totalEarnings, rating: u.rating, rating_count: u.ratingCount,
+      online: u.isOnline, blocked: !!u.isBlocked, block_reason: u.blockReason ?? '', deliveries: u.totalDeliveries, earnings: u.totalEarnings, wallet_balance: w ? bal(u) / 100 : '', rating: u.rating, rating_count: u.ratingCount,
       joined: u.createdAt, deleted: u.deletedAt ?? '',
     } : {
       name: u.name, phone: u.phone, email: u.email, orders: st(u).orders, delivered: st(u).delivered,
@@ -70,27 +76,46 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
     })))
 
   const blockedCount = people.filter(p => p.isBlocked).length
+  const walletTotal = w ? d.riders.reduce((s, r) => s + (w.balances.get(r._id) ?? 0), 0) : 0
+  const lowWallet = w ? d.riders.filter(r => !r.deletedAt && (w.balances.get(r._id) ?? 0) < w.minBalance).length : 0
   const filters: { value: Filter; label: string; count?: number }[] = isRider
-    ? [{ value: 'all', label: 'All' }, { value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }, { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
+    ? [{ value: 'all', label: 'All' }, { value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }, ...(w ? [{ value: 'low_wallet' as Filter, label: 'Low wallet', count: lowWallet }] : []), { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
     : [{ value: 'all', label: 'All' }, { value: 'active', label: 'Has ordered' }, { value: 'inactive', label: 'Never ordered' }, { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
 
   const t = isRider ? riderSort : custSort
+
+  // Selection — sirf credit-able riders (deleted nahi). Filter badle to bhi selection bana rahe.
+  const canCredit = (u: User) => !u.deletedAt
+  const selectable = rows.filter(canCredit)
+  const allSelected = selectable.length > 0 && selectable.every(u => selected.has(u._id))
+  const someSelected = selectable.some(u => selected.has(u._id))
+  const toggleOne = (id: string) => setSelected(s => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n })
+  const toggleAll = () => setSelected(s => {
+    const n = new Set(s)
+    if (allSelected) selectable.forEach(u => n.delete(u._id)); else selectable.forEach(u => n.add(u._id))
+    return n
+  })
+  const selectedRiders = d.riders.filter(r => selected.has(r._id) && canCredit(r))
+  const eligibleAll = d.riders.filter(r => !r.deletedAt && !r.isBlocked)
+  const walletOn = isRider && !!w
 
   return (
     <>
       <PageHeader title={isRider ? 'Riders' : 'Customers'}
         subtitle={isRider ? 'Delivery partners, their earnings and ratings' : 'People who book parcels on HIREON'}>
         <button className="btn" onClick={exportCsv} disabled={!rows.length}><IconDownload /> Export CSV</button>
+        {walletOn && <button className="btn btn-primary" onClick={() => setWalletTarget({ kind: 'all', riders: eligibleAll })} disabled={!eligibleAll.length}><IconWallet /> Add money to all</button>}
       </PageHeader>
 
       {d.error && <ErrorBox message={d.error} onRetry={d.refresh} />}
       {d.usersCapped && <Notice>Showing the latest 1,000 accounts.</Notice>}
 
-      <div className="kpi-grid kpi-grid-4">
+      <div className={'kpi-grid' + (walletOn ? '' : ' kpi-grid-4')}>
         {isRider ? <>
           <Kpi loading={loading} label="Total riders" value={num(d.riders.length)} hint={num(newThisWeek) + ' joined this week'} />
           <Kpi loading={loading} label="Online now" value={<>{num(online)}<span className="kpi-of">/{num(d.riders.length)}</span></>} hint="available to accept orders" />
           <Kpi loading={loading} label="Total paid out" value={money(totalEarn)} hint="lifetime rider earnings" />
+          {walletOn && <Kpi loading={loading} label="Wallet balance" value={paise(walletTotal)} hint={num(lowWallet) + ' below COD limit'} />}
           <Kpi loading={loading} label="Average rating" value={avgRating ? avgRating.toFixed(2) + ' ★' : '—'} hint={num(rated.length) + ' riders rated'} />
         </> : <>
           <Kpi loading={loading} label="Total customers" value={num(d.customers.length)} hint={num(newThisWeek) + ' joined this week'} />
@@ -112,15 +137,27 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
           </div>
         </div>
 
+        {walletOn && someSelected && (
+          <div className="bulk-bar">
+            <span><b>{num(selectedRiders.length)}</b> rider{selectedRiders.length === 1 ? '' : 's'} selected</span>
+            <div className="toolbar-row">
+              <button className="btn btn-sm btn-ghost" onClick={() => setSelected(new Set())}>Clear</button>
+              <button className="btn btn-sm btn-primary" onClick={() => setWalletTarget({ kind: 'riders', riders: selectedRiders })} disabled={!selectedRiders.length}><IconPlus /> Add money</button>
+            </div>
+          </div>
+        )}
+
         <div className="table-wrap">
           <table className="table">
             <thead>
               {isRider ? (
                 <tr>
+                  {walletOn && <th className="check-col"><input type="checkbox" aria-label="Select all riders" checked={allSelected} ref={el => { if (el) el.indeterminate = someSelected && !allSelected }} onChange={toggleAll} /></th>}
                   <SortTh k="name" sort={riderSort.sort} onSort={riderSort.toggle}>Rider</SortTh>
                   <th>Contact</th><th>Vehicle</th>
                   <SortTh k="deliveries" sort={riderSort.sort} onSort={riderSort.toggle} num>Deliveries</SortTh>
                   <SortTh k="earnings" sort={riderSort.sort} onSort={riderSort.toggle} num>Earnings</SortTh>
+                  {walletOn && <SortTh k="wallet" sort={riderSort.sort} onSort={riderSort.toggle} num>Wallet</SortTh>}
                   <SortTh k="rating" sort={riderSort.sort} onSort={riderSort.toggle}>Rating</SortTh>
                   <SortTh k="joined" sort={riderSort.sort} onSort={riderSort.toggle} num>Joined</SortTh>
                 </tr>
@@ -136,8 +173,11 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
               )}
             </thead>
             <tbody>
-              {loading ? <SkeletonRows cols={isRider ? 7 : 6} /> : t.pageRows.map(u => (
-                <tr key={u._id} className={'clickable' + (u.isBlocked ? ' row-blocked' : '')} onClick={() => openUser(u._id)}>
+              {loading ? <SkeletonRows cols={isRider ? (walletOn ? 9 : 7) : 6} /> : t.pageRows.map(u => (
+                <tr key={u._id} className={'clickable' + (u.isBlocked ? ' row-blocked' : '') + (selected.has(u._id) ? ' row-selected' : '')} onClick={() => openUser(u._id)}>
+                  {walletOn && <td className="check-col" onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" aria-label={'Select ' + u.name} disabled={!canCredit(u)} checked={selected.has(u._id)} onChange={() => toggleOne(u._id)} />
+                  </td>}
                   <td>
                     <div className="user-cell">
                       <span className="avatar-wrap">
@@ -159,6 +199,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
                     <td>{u.vehicleType || <span className="muted">—</span>}<div className="muted small mono">{u.vehicleNumber}</div></td>
                     <td className="num">{num(u.totalDeliveries)}</td>
                     <td className="num strong-ish">{money(u.totalEarnings)}</td>
+                    {walletOn && <td className={'num strong-ish' + (bal(u) < 0 ? ' neg' : '')}>{paise(bal(u))}{bal(u) < w!.minBalance && <div className="muted small">below COD limit</div>}</td>}
                     <td><span className="rating"><IconStar /> {(u.rating ?? 5).toFixed(1)}</span> <span className="muted small">({num(u.ratingCount)})</span></td>
                   </> : <>
                     <td className="num">{num(st(u).orders)}</td>
@@ -174,6 +215,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
         </div>
         {t.total > 0 && <Pagination page={t.page} pages={t.pages} total={t.total} pageSize={t.pageSize} onPage={t.setPage} />}
       </Card>
+      {walletTarget && <WalletDialog target={walletTarget} onClose={() => setWalletTarget(null)} onDone={r => { if (walletTarget.kind === 'riders' && !r.failed.length) setSelected(new Set()) }} />}
     </>
   )
 }

@@ -145,3 +145,68 @@
   .live-panel { border-right: 0; border-bottom: 1px solid var(--border); max-height: 520px; }
   .livemap { height: 460px; }
 }
+
+/* ==========================================================================
+   Rider wallets — add-money dialog, selection, ledger
+   ========================================================================== */
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+.check-col { width: 40px; padding-right: 0 !important; }
+.check-col input, .confirm-check input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+.table tr.row-selected td { background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface)); }
+.bulk-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 10px 16px; background: var(--accent-soft); border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); font-size: 13.5px; animation: fade .12s; }
+
+.wallet-modal { width: min(560px, 100%); }
+.wallet-current { text-align: right; flex-shrink: 0; }
+.recipients { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.avatar-stack { display: flex; flex-shrink: 0; }
+.avatar-stack .avatar { border: 2px solid var(--surface); }
+.avatar-stack .avatar + .avatar { margin-left: -10px; }
+
+.money-input { position: relative; }
+.money-input > span { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); font-size: 20px; font-weight: 600; color: var(--muted); pointer-events: none; }
+.money-input .input { height: 52px; padding-left: 34px; font-size: 22px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; }
+.money-input.invalid .input { border-color: var(--bad); box-shadow: 0 0 0 4px var(--bad-soft); }
+.quick-amounts { margin-top: 8px; }
+.quick-amounts .chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.field-error { margin-top: 6px; color: var(--bad); font-size: 12.5px; font-weight: 500; }
+.input-hint { display: flex; justify-content: space-between; gap: 8px; margin-top: 4px; }
+
+.category-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.category { display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; cursor: pointer; transition: border-color .12s, background .12s; }
+.category:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.category.on { border-color: var(--accent); background: var(--accent-soft); box-shadow: 0 0 0 1px var(--accent) inset; }
+.category:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.review-list { margin: 12px 0 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.review-list > div { display: flex; justify-content: space-between; gap: 16px; padding: 10px 14px; font-size: 13.5px; }
+.review-list > div + div { border-top: 1px solid var(--border); }
+.review-list dt { color: var(--muted); flex-shrink: 0; }
+.review-list dd { margin: 0; text-align: right; font-weight: 500; word-break: break-word; }
+.review-total { background: var(--surface-2); }
+.review-total dt { color: var(--text); font-weight: 600; }
+.review-total dd { font-size: 17px; font-weight: 700; }
+.confirm-check { display: flex; gap: 10px; align-items: flex-start; margin-top: 14px; padding: 12px; border-radius: 10px; background: var(--warn-soft); color: var(--warn); font-size: 13px; line-height: 1.5; cursor: pointer; }
+.confirm-check input { margin-top: 2px; flex-shrink: 0; }
+
+.result-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.result-stat { padding: 12px; border: 1px solid var(--border); border-radius: 10px; text-align: center; }
+.result-stat.good { background: var(--good-soft); border-color: transparent; color: var(--good); }
+.result-stat.bad { background: var(--bad-soft); border-color: transparent; color: var(--bad); }
+.result-num { font-size: 22px; font-weight: 700; }
+.callout svg { width: 15px; height: 15px; vertical-align: -3px; color: var(--good); }
+.callout-bad { background: var(--bad-soft); color: var(--bad); }
+
+.wallet-icon { background: var(--info-soft); color: var(--info); }
+.wallet-balance { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.wallet-loading { margin-top: 12px; }
+.ledger { list-style: none; margin: 12px 0 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; max-height: 320px; overflow-y: auto; }
+.ledger li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; font-size: 13px; }
+.ledger li + li { border-top: 1px solid var(--border); }
+.ledger-main { min-width: 0; flex: 1; }
+.ledger-side { text-align: right; flex-shrink: 0; }
+
+@media (max-width: 560px) {
+  .category-grid { grid-template-columns: 1fr; }
+  .wallet-current { display: none; }
+}

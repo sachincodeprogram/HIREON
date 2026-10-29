@@ -172,4 +172,42 @@ const sendSupportReplyPush = async (fcmToken, ticket, text) => {
   }
 };
 
-module.exports = { sendOrderPush, sendAddressChangePush, sendCancelPush, sendRingWithdrawPush, sendSupportReplyPush };
+// Admin ne rider ke wallet me paise daale — rider ko notification (app band ho
+// tab bhi dikhe, isliye notification payload). Purane app versions bhi tray me dikhayenge.
+const sendWalletCreditPush = async (fcmToken, { amountPaise, balancePaise, label }) => {
+  if (!fcmToken) return null;
+  try {
+    const rs = (p) => (p / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    await messaging().send({
+      token: fcmToken,
+      notification: {
+        title: `💰 ₹${rs(amountPaise)} added to your wallet`,
+        body: `${label || 'Credit from HIREON'} · New balance ₹${rs(balancePaise)}`,
+      },
+      data: {
+        type: 'wallet_credit',
+        amountPaise: String(amountPaise),
+        balancePaise: String(balancePaise),
+      },
+      android: {
+        priority: 'high',
+        notification: {
+          channelId: 'order_updates',
+          sound: 'default',
+          defaultVibrateTimings: true,
+          visibility: 'public',
+        },
+      },
+    });
+    return 'sent';
+  } catch (e) {
+    if (e.code === 'messaging/registration-token-not-registered' ||
+        e.code === 'messaging/invalid-registration-token') {
+      return 'invalid-token';
+    }
+    console.warn('[PUSH] wallet-credit send failed:', e.message);
+    return null;
+  }
+};
+
+module.exports = { sendOrderPush, sendAddressChangePush, sendCancelPush, sendRingWithdrawPush, sendSupportReplyPush, sendWalletCreditPush };

@@ -5,6 +5,7 @@ import { useDetail } from '../nav'
 import { isActive, ordersOf } from '../analytics'
 import { date, dateTime, money, num, orderFare } from '../format'
 import BlockDialog from '../components/BlockDialog'
+import WalletSection from './WalletSection'
 import { Avatar, CopyButton, Drawer, Field, MiniStat, Pill, StatusBadge } from '../components/ui'
 import { IconBan, IconShield, IconStar } from '../components/icons'
 
@@ -68,6 +69,8 @@ export default function UserDrawer({ user, onClose }: { user: User | null; onClo
             <Field label="User ID"><span className="mono small">{u._id}</span> <CopyButton text={u._id} /></Field>
           </dl>
         </section>
+
+        {isRider && <WalletSection user={u} />}
 
         <section className="drawer-section">
           <h3>Account control</h3>

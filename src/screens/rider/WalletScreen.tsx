@@ -169,7 +169,9 @@ const WalletScreen = () => {
             </Card>
           ) : (
             transactions.map((txn, i) => {
-              const meta = TXN_META[txn.type];
+              // Anjaan type par crash nahi — backend aage naya type bheje to bhi screen chale
+              const base = TXN_META[txn.type] ?? { icon: '💳', label: 'wallet.txnRecharge', credit: txn.type !== 'COMMISSION_DEBIT' };
+              const meta = txn.source === 'admin' ? { ...base, icon: '🎁', label: 'wallet.txnAdminCredit' as TranslationKey } : base;
               return (
                 <View key={txn._id} style={[styles.txnRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}>
                   <View style={[styles.txnIconChip, { backgroundColor: (meta.credit ? COLORS.success : COLORS.error) + '16' }]}>

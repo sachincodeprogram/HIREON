@@ -2,6 +2,7 @@ const mongoose      = require('mongoose');
 const User          = require('../models/User');
 const Order         = require('../models/Order');
 const RiderLocation = require('../models/RiderLocation');
+const WalletTransaction = require('../models/WalletTransaction');
 const { success, error } = require('../utils/apiResponse');
 const { getActivitySince } = require('../utils/activityLog');
 
@@ -211,7 +212,7 @@ const getActivity = async (req, res) => {
     if (since.getTime() < now - ACTIVITY_WINDOW_MS) since = new Date(now - ACTIVITY_WINDOW_MS);
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 100, 1), 300);
 
-    const [orders, signups, moderated] = await Promise.all([
+    const [orders, signups, moderated, credits] = await Promise.all([
       Order.find({ updatedAt: { $gte: since } })
         .select('orderId status timeline fare paymentMethod cancelledBy pickup.address delivery.address customer rider')
         .sort({ updatedAt: -1 })
@@ -221,6 +222,12 @@ const getActivity = async (req, res) => {
         .lean(),
       User.find({ createdAt: { $gte: since } }).select('name role createdAt').sort({ createdAt: -1 }).limit(limit).lean(),
       User.find({ 'blockHistory.at': { $gte: since } }).select('name role blockHistory').limit(limit).lean(),
+      WalletTransaction.find({ source: 'admin', createdAt: { $gte: since } })
+        .select('rider amount balanceAfter adminCategory description createdAt')
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .populate('rider', 'name role')
+        .lean(),
     ]);
 
     const events = [];
@@ -243,6 +250,12 @@ const getActivity = async (req, res) => {
       (u.blockHistory || []).forEach((b, i) => {
         if (!b.at || b.at < since) return;
         events.push({ id: `b:${u._id}:${i}`, type: b.action, reason: b.reason || '', at: b.at, user: { _id: u._id, name: u.name, role: u.role } });
+      });
+    }
+    for (const t of credits) {
+      events.push({
+        id: `w:${t._id}`, type: 'wallet_credit', at: t.createdAt, amount: t.amount, category: t.adminCategory,
+        reason: t.description || '', user: t.rider ? { _id: t.rider._id, name: t.rider.name, role: t.rider.role } : undefined,
       });
     }
     getActivitySince(since).forEach((e) => {

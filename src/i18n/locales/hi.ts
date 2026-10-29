@@ -406,6 +406,7 @@ const hi: Partial<Record<keyof typeof en, string>> = {
   'wallet.txnRecharge':     'वॉलेट रिचार्ज',
   'wallet.txnRefund':       'रिफ़ंड',
   'wallet.txnCommission':   'कमीशन',
+  'wallet.txnAdminCredit':  'HIREON द्वारा जोड़ा गया',
 
   // ── Active delivery (rider) ──
   'active.addrChanged':       'डिलीवरी का पता बदला',
