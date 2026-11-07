@@ -15,6 +15,7 @@ const TXN_LABEL: Record<WalletTxn['type'], string> = {
 
 const txnLabel = (t: WalletTxn) => t.source === 'admin'
   ? 'Admin · ' + (WALLET_CATEGORIES.find(c => c.value === t.adminCategory)?.label ?? 'Credit')
+  : t.source === 'referral' ? 'Referral bonus'
   : TXN_LABEL[t.type] ?? t.type
 
 export default function WalletSection({ user }: { user: User }) {

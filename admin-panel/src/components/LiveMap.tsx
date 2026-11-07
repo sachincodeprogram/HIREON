@@ -3,13 +3,17 @@ import { useEffect, useRef, useState } from 'react'
 import type { LiveRider, Order } from '../api'
 import { DARK_STYLE, LIGHT_STYLE, loadGoogleMaps, mapsAuthFailed, markerSvg, onMapsAuthFailure, riderSvg } from '../maps'
 import { ago } from '../format'
+import MapSearch from './MapSearch'
 
 const STALE_MS = 5 * 60_000
 const DEFAULT_CENTER = { lat: 28.4744, lng: 77.504 } // Greater Noida
 
 export type RiderState = 'available' | 'busy' | 'stale'
+// Rider app location tabhi bhejta hai jab rider ~30 m hile — ek jagah khade online
+// rider ki location purani dikhti hai. Socket connected ho to wo live hi hai, stale mat maano.
 export const riderState = (r: LiveRider, busy: boolean): RiderState => {
-  if (!r.location || Date.now() - new Date(r.location.updatedAt).getTime() > STALE_MS) return 'stale'
+  if (!r.location) return 'stale'
+  if (!r.connected && Date.now() - new Date(r.location.updatedAt).getTime() > STALE_MS) return 'stale'
   return busy ? 'busy' : 'available'
 }
 const COLORS: Record<RiderState, string> = { available: '#0ca30c', busy: '#2a78d6', stale: '#8790a3' }
@@ -40,6 +44,8 @@ export default function LiveMap({ riders, orders, selected, onSelectOrder, theme
         if (mapsAuthFailed()) { setError('Google rejected the Maps key. Enable “Maps JavaScript API” for this key in Google Cloud Console.'); return }
         map.current = new gm.Map(el.current, {
           center: DEFAULT_CENTER, zoom: 12, disableDefaultUI: true, zoomControl: true, fullscreenControl: true,
+          // Upar-right me area search box hai — fullscreen button neeche le jao
+          fullscreenControlOptions: { position: gm.ControlPosition.RIGHT_BOTTOM },
           clickableIcons: false, gestureHandling: 'greedy', styles: theme === 'dark' ? DARK_STYLE : LIGHT_STYLE,
           backgroundColor: theme === 'dark' ? '#0a0d14' : '#f6f7f9',
         })
@@ -88,7 +94,7 @@ export default function LiveMap({ riders, orders, selected, onSelectOrder, theme
       m.setTitle(r.name)
       google.maps.event.clearListeners(m, 'click')
       m.addListener('click', () => {
-        const status = st === 'stale' ? 'Location not updated recently' : st === 'busy' ? 'On a delivery' : 'Available'
+        const status = st === 'stale' ? 'Location not updated recently' : (st === 'busy' ? 'On a delivery' : 'Available') + (r.connected ? ' · app connected' : '')
         info.current?.setContent(
           '<div class="map-info"><div class="map-info-title">' + esc(r.name) + '</div>' +
           '<div class="map-info-sub">' + esc([r.vehicleType, r.vehicleNumber].filter(Boolean).join(' · ') || 'Rider') + '</div>' +
@@ -159,6 +165,11 @@ export default function LiveMap({ riders, orders, selected, onSelectOrder, theme
   return (
     <div className="livemap">
       <div ref={el} className="livemap-canvas" />
+      {ready && !error && (
+        <MapSearch map={map.current} riders={riders}
+          onRider={r => { const m = riderMarkers.current.get(r._id); if (m) google.maps.event.trigger(m, 'click') }} />
+      )}
+      {ready && !error && <MapSearch variant="area" map={map.current} riders={riders} orders={orders} />}
       {!ready && !error && <div className="livemap-overlay"><span className="btn-spinner" /> Loading map…</div>}
       {error && (
         <div className="livemap-overlay livemap-error">

@@ -255,7 +255,7 @@ export interface WalletTxn {
   balanceAfter: number
   order?: { _id: string; orderId: string } | null
   description?: string
-  source?: 'system' | 'razorpay' | 'admin'
+  source?: 'system' | 'razorpay' | 'admin' | 'referral'
   adminCategory?: WalletCategory | ''
   createdAt: string
 }
