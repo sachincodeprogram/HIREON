@@ -13,6 +13,7 @@ import RiderProfileScreen   from '../screens/rider/RiderProfileScreen';
 import ActiveDeliveryScreen from '../screens/rider/ActiveDeliveryScreen';
 import NavigationScreen     from '../screens/rider/NavigationScreen';
 import WalletScreen         from '../screens/rider/WalletScreen';
+import ReferEarnScreen      from '../screens/rider/ReferEarnScreen';
 import SupportHomeScreen    from '../screens/support/SupportHomeScreen';
 import SupportChatScreen    from '../screens/support/SupportChatScreen';
 
@@ -38,6 +39,7 @@ const RiderNavigator = () => (
     <Stack.Screen name="ActiveDelivery" component={ActiveDeliveryScreen} options={{ animation: 'slide_from_bottom' }} />
     <Stack.Screen name="Navigation"     component={NavigationScreen}     options={{ animation: 'slide_from_bottom' }} />
     <Stack.Screen name="Wallet"         component={WalletScreen}         options={{ animation: 'slide_from_right' }} />
+    <Stack.Screen name="ReferEarn"      component={ReferEarnScreen}      options={{ animation: 'slide_from_right' }} />
     {/* Profile bottom tab me nahi — header ke avatar se khulta hai */}
     <Stack.Screen name="Profile"        component={RiderProfileScreen}   options={{ animation: 'slide_from_right' }} />
     <Stack.Screen name="Support"        component={SupportHomeScreen}    options={{ animation: 'slide_from_right' }} />

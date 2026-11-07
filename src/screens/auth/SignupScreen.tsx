@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Alert,
-  KeyboardAvoidingView, Platform, StatusBar,
+  KeyboardAvoidingView, Platform, StatusBar, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,8 @@ import { COLORS } from '../../constants/api';
 import Input  from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { useTranslation } from '../../i18n';
+import { ReferralChannel } from '../../types';
+import { getInstallReferralCode, normalizeReferralCode, validateReferralCode } from '../../services/referralService';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Signup'>;
@@ -29,6 +31,35 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
   const [name,       setName]       = useState('');
   const [phoneInput, setPhoneInput] = useState('');
 
+  // Refer & Earn — invite link se install hua ho to code apne aap bhar do,
+  // warna "Have a referral code?" par tap karke khud daal sakte hain.
+  const [showReferral,    setShowReferral]    = useState(false);
+  const [referralCode,    setReferralCode]    = useState('');
+  const [referralChannel, setReferralChannel] = useState<ReferralChannel>('code');
+  const [inviterName,     setInviterName]     = useState('');
+  const [checkingCode,    setCheckingCode]    = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    getInstallReferralCode().then(code => {
+      if (!alive || !code) return;
+      setReferralCode(code);
+      setReferralChannel('link');
+      setShowReferral(true);
+      // Link wale code ka naam pehle hi dikha do ("Invited by Sachin") — fail ho to chup
+      validateReferralCode(code)
+        .then(r => { if (alive && r.valid && r.referrerName) setInviterName(r.referrerName); })
+        .catch(() => {});
+    });
+    return () => { alive = false; };
+  }, []);
+
+  const onReferralChange = (v: string) => {
+    setReferralCode(normalizeReferralCode(v));
+    setReferralChannel('code'); // user ne khud badla — ab yeh link wala code nahi raha
+    setInviterName('');
+  };
+
   useEffect(() => {
     if (__DEV__) setName('Test User');
     // NOTE: yahan jaan-bujhke auto-focus NAHI karte. Android release me screen
@@ -38,7 +69,7 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
     // user ka pehla tap reliably keyboard khol dega.
   }, []);
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!name.trim()) {
       Alert.alert(t('signup.nameRequired'), t('signup.nameRequiredMsg'));
       return;
@@ -55,7 +86,30 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
       }
       phone = phoneInput.trim();
     }
-    navigation.navigate('RoleSelect', { name: name.trim(), phone });
+
+    const goNext = (code?: string) => navigation.navigate('RoleSelect', {
+      name: name.trim(),
+      phone,
+      ...(code ? { referralCode: code, referralChannel } : {}),
+    });
+
+    if (!referralCode) return goNext();
+
+    // Galat code par yahin bata do — register ke baad chupchap ignore hone se behtar
+    try {
+      setCheckingCode(true);
+      const result = await validateReferralCode(referralCode);
+      if (result.valid) return goNext(result.code || referralCode);
+      Alert.alert(t('signup.referralInvalid'), t('signup.referralInvalidMsg'), [
+        { text: t('signup.editCode'), style: 'cancel' },
+        { text: t('signup.skipCode'), onPress: () => { setReferralCode(''); goNext(); } },
+      ]);
+    } catch {
+      // Network glitch — code bhej do, server register ke waqt khud dobara check karta hai
+      goNext(referralCode);
+    } finally {
+      setCheckingCode(false);
+    }
   };
 
   return (
@@ -121,7 +175,32 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
             </Text>
           </View>
 
-          <Button title={t('common.continue')} onPress={handleNext} style={styles.btn} />
+          {showReferral ? (
+            <>
+              <Text style={styles.inputSectionTitle}>{t('signup.referralTitle')}</Text>
+              <Input
+                value={referralCode}
+                onChangeText={onReferralChange}
+                placeholder={t('signup.referralPh')}
+                leftIcon="🎁"
+                // Android: suggestions/autocorrect band — code me galat shabd na ghuse
+                keyboardType={Platform.OS === 'android' ? 'visible-password' : 'default'}
+              />
+              {referralChannel === 'link' && referralCode ? (
+                <View style={styles.referralNote}>
+                  <Text style={styles.referralNoteText}>
+                    {inviterName ? t('signup.referralValid', { name: inviterName }) : t('signup.referralFromLink')}
+                  </Text>
+                </View>
+              ) : <View style={{ height: 16 }} />}
+            </>
+          ) : (
+            <TouchableOpacity onPress={() => setShowReferral(true)} style={styles.haveCodeBtn} activeOpacity={0.7}>
+              <Text style={styles.haveCodeText}>🎁  {t('signup.haveCode')}</Text>
+            </TouchableOpacity>
+          )}
+
+          <Button title={t('common.continue')} onPress={handleNext} loading={checkingCode} style={styles.btn} />
 
         </ScrollView>
       </KeyboardAvoidingView>
@@ -178,6 +257,14 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.secondaryBg, borderRadius: 12, padding: 14, marginTop: 4, marginBottom: 28,
   },
   infoText: { fontSize: 13, color: COLORS.secondary, lineHeight: 18 },
+
+  haveCodeBtn:  { alignSelf: 'flex-start', paddingVertical: 6, marginTop: -12, marginBottom: 24 },
+  haveCodeText: { fontSize: 14, fontWeight: '700', color: COLORS.primary },
+  referralNote: {
+    backgroundColor: COLORS.successBg, borderRadius: 12, padding: 12, marginTop: -4, marginBottom: 24,
+    borderWidth: 1, borderColor: COLORS.success + '30',
+  },
+  referralNoteText: { fontSize: 13, fontWeight: '600', color: COLORS.success, lineHeight: 18 },
 
   btn: { marginTop: 'auto' as any },
 });

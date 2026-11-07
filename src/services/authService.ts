@@ -1,5 +1,5 @@
 import apiClient from './apiClient';
-import { UserProfile, UserRole } from '../types';
+import { ReferralChannel, UserProfile, UserRole } from '../types';
 
 interface RegisterPayload {
   name: string;
@@ -7,6 +7,8 @@ interface RegisterPayload {
   role: UserRole;
   vehicleType?: string;
   vehicleNumber?: string;
+  referralCode?: string;
+  referralChannel?: ReferralChannel;
 }
 
 export const registerUser = async (payload: RegisterPayload): Promise<UserProfile> => {

@@ -19,6 +19,7 @@ import { RINGTONES, Ringtone } from '../../constants/ringtones';
 import { getSavedRingtoneId, saveRingtoneId } from '../../services/ringtoneService';
 import { LanguageSettingRow } from '../../components/common/LanguagePicker';
 import { SupportSettingRow } from '../../components/common/SupportButton';
+import { REFERRAL_REWARD_RUPEES } from '../../services/referralService';
 import { TranslationKey, useTranslation } from '../../i18n';
 
 Sound.setCategory('Playback');
@@ -206,6 +207,16 @@ const RiderProfileScreen = () => {
             </View>
             <Text style={styles.walletArrow}>›</Text>
           </Card>
+          <Card onPress={() => navigation.navigate('ReferEarn')} style={styles.referRow}>
+            <View style={styles.walletIconChip}>
+              <Text style={styles.walletIconText}>🎁</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletTitle}>{t('refer.title')}</Text>
+              <Text style={styles.walletSub}>{t('refer.rowSub', { amount: REFERRAL_REWARD_RUPEES })}</Text>
+            </View>
+            <Text style={styles.walletArrow}>›</Text>
+          </Card>
         </View>
 
         {/* Profile Info */}
@@ -364,6 +375,7 @@ const styles = StyleSheet.create({
   editActions: { flexDirection: 'row', gap: 10, marginTop: 8 },
 
   walletRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  referRow:  { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
   walletIconChip: {
     width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.secondaryBg,
     alignItems: 'center', justifyContent: 'center',

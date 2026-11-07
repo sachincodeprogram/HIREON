@@ -1,4 +1,4 @@
-import { FareEstimate, LocationInfo, ParcelInfo, PaymentMethod } from '../types';
+import { FareEstimate, LocationInfo, ParcelInfo, PaymentMethod, ReferralChannel } from '../types';
 
 export type RootStackParamList = {
   Splash:   undefined;
@@ -11,7 +11,7 @@ export type RootStackParamList = {
 export type AuthStackParamList = {
   Login:      undefined;
   Signup:     { phone: string };
-  RoleSelect: { name: string; phone: string };
+  RoleSelect: { name: string; phone: string; referralCode?: string; referralChannel?: ReferralChannel };
 };
 
 export type CustomerTabParamList = {
@@ -39,6 +39,7 @@ export type RiderStackParamList = {
   RiderTabs:      undefined;
   ActiveDelivery: { orderId: string };
   Wallet:         undefined;
+  ReferEarn:      undefined;
   Profile:        undefined;
   Support:        undefined;
   SupportChat:    { ticketId?: string };

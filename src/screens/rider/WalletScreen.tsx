@@ -2,6 +2,8 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Alert, RefreshControl, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { RiderStackParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
 import { RADIUS } from '../../constants/theme';
 import Card         from '../../components/common/Card';
@@ -11,6 +13,7 @@ import ScreenHeader from '../../components/navigation/ScreenHeader';
 import useAppSelector from '../../hooks/useAppSelector';
 import { getWallet, getWalletTransactions, createRechargeOrder, verifyRecharge } from '../../services/walletService';
 import { openRazorpayCheckout, isUserCancelled } from '../../services/razorpayCheckout';
+import { REFERRAL_REWARD_RUPEES } from '../../services/referralService';
 import { Wallet, WalletTransaction } from '../../types';
 import { TranslationKey, useTranslation } from '../../i18n';
 
@@ -26,7 +29,7 @@ const TXN_META: Record<WalletTransaction['type'], { icon: string; label: Transla
 const rupees = (paise: number) => (paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 
 const WalletScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RiderStackParamList>>();
   const { t }       = useTranslation();
   const profile     = useAppSelector(s => s.auth.profile);
 
@@ -123,6 +126,16 @@ const WalletScreen = () => {
           </View>
         )}
 
+        {/* Refer & Earn — bonus isi wallet me aata hai */}
+        <Card onPress={() => navigation.navigate('ReferEarn')} style={styles.referBanner}>
+          <Text style={styles.referIcon}>🎁</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.referTitle}>{t('refer.walletBanner', { amount: REFERRAL_REWARD_RUPEES })}</Text>
+            <Text style={styles.referSub}>{t('refer.walletBannerSub')}</Text>
+          </View>
+          <Text style={styles.referArrow}>›</Text>
+        </Card>
+
         {/* Recharge */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>{t('wallet.rechargeWallet')}</Text>
@@ -171,7 +184,9 @@ const WalletScreen = () => {
             transactions.map((txn, i) => {
               // Anjaan type par crash nahi — backend aage naya type bheje to bhi screen chale
               const base = TXN_META[txn.type] ?? { icon: '💳', label: 'wallet.txnRecharge', credit: txn.type !== 'COMMISSION_DEBIT' };
-              const meta = txn.source === 'admin' ? { ...base, icon: '🎁', label: 'wallet.txnAdminCredit' as TranslationKey } : base;
+              const meta = txn.source === 'admin'    ? { ...base, icon: '🎁', label: 'wallet.txnAdminCredit' as TranslationKey }
+                         : txn.source === 'referral' ? { ...base, icon: '🤝', label: 'wallet.txnReferral' as TranslationKey }
+                         : base;
               return (
                 <View key={txn._id} style={[styles.txnRow, i === transactions.length - 1 && { borderBottomWidth: 0 }]}>
                   <View style={[styles.txnIconChip, { backgroundColor: (meta.credit ? COLORS.success : COLORS.error) + '16' }]}>
@@ -220,6 +235,15 @@ const styles = StyleSheet.create({
   blockedIcon: { fontSize: 22 },
   blockedTitle: { fontSize: 14, fontWeight: '800', color: COLORS.warning, marginBottom: 2 },
   blockedText:  { fontSize: 12, color: COLORS.warning, lineHeight: 17 },
+
+  referBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 16,
+    backgroundColor: COLORS.successBg, borderColor: COLORS.success + '30',
+  },
+  referIcon:  { fontSize: 24 },
+  referTitle: { fontSize: 14, fontWeight: '800', color: COLORS.text },
+  referSub:   { fontSize: 12, color: COLORS.textMuted, marginTop: 2 },
+  referArrow: { fontSize: 24, color: COLORS.textLight, fontWeight: '300' },
 
   section: { marginBottom: 8 },
   sectionTitle: { fontSize: 15, fontWeight: '800', color: COLORS.text, marginBottom: 10 },

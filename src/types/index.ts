@@ -63,6 +63,9 @@ export interface UserProfile {
   isBlocked?: boolean;
   blockReason?: string;
   blockedAt?: string | null;
+  // Refer & Earn — rider ka invite code; naye user ke liye kis rider ne invite kiya
+  referralCode?: string;
+  referredBy?: string | null;
   createdAt: string;
 }
 
@@ -133,8 +136,34 @@ export interface WalletTransaction {
   order?: { _id: string; orderId: string } | string | null;
   description: string;
   // 'admin' = HIREON team ne admin panel se credit kiya (bonus/refund/incentive)
-  source?: 'system' | 'razorpay' | 'admin';
+  // 'referral' = Refer & Earn bonus (invite kiya dost HIREON par join hua)
+  source?: 'system' | 'razorpay' | 'admin' | 'referral';
   createdAt: string;
+}
+
+// ── Refer & Earn ────────────────────────────────────────────────────────────
+export type ReferralChannel = 'code' | 'link';
+export type ReferralStatus  = 'joined' | 'pending' | 'rewarded' | 'rejected';
+
+export interface ReferralFriend {
+  _id: string;
+  name: string;          // sirf pehla naam
+  role: UserRole;
+  channel: ReferralChannel;
+  status: ReferralStatus;
+  rejectReason?: string; // 'monthly_limit' | 'referrer_blocked' | 'referrer_deleted'
+  rewardPaise: number;
+  createdAt: string;
+}
+
+export interface ReferralSummary {
+  enabled: boolean;
+  code: string;
+  shareLink: string;
+  rewardPaise: number;
+  monthlyLimit: number;
+  stats: { joined: number; rewarded: number; earnedPaise: number };
+  referrals: ReferralFriend[];
 }
 
 export interface RazorpayOrder {

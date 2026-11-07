@@ -287,7 +287,15 @@ const RiderDashboard = () => {
         { enableHighAccuracy: true, distanceFilter: 30, interval: 6000, fastestInterval: 4000 },
       );
     });
+    // distanceFilter ki wajah se khade rider ka update nahi jaata — har minute
+    // last fix dobara bhejo taaki admin/dispatch ko rider live dikhe.
+    const heartbeat = setInterval(() => {
+      getCurrentPosition()
+        .then(c => apiClient.post('/rider/location', { lat: c.lat, lng: c.lng, heading: 0 }).catch(() => {}))
+        .catch(() => {});
+    }, 60_000);
     return () => {
+      clearInterval(heartbeat);
       if (locationWatchId.current !== null) {
         Geolocation.clearWatch(locationWatchId.current);
         locationWatchId.current = null;

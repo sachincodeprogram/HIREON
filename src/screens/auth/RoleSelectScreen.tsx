@@ -35,7 +35,7 @@ const ROLES: { value: UserRole; label: TranslationKey; icon: string; desc: Trans
 const RoleSelectScreen: React.FC<Props> = ({ route }) => {
   const dispatch = useAppDispatch();
   const { t }    = useTranslation();
-  const { name, phone } = route.params;
+  const { name, phone, referralCode, referralChannel } = route.params;
   const [selected,      setSelected]      = useState<UserRole | null>(null);
   const [vehicleType,   setVehicleType]   = useState('');
   const [vehicleNumber, setVehicleNumber] = useState('');
@@ -48,7 +48,7 @@ const RoleSelectScreen: React.FC<Props> = ({ route }) => {
     }
     try {
       setLoading(true);
-      const profile = await registerUser({ name, phone, role: selected, vehicleType, vehicleNumber });
+      const profile = await registerUser({ name, phone, role: selected, vehicleType, vehicleNumber, referralCode, referralChannel });
       dispatch(setProfile(profile));
     } catch (e: any) {
       Alert.alert(t('role.registrationFailed'), e.message);
