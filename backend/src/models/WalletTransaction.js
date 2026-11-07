@@ -16,9 +16,9 @@ const walletTransactionSchema = new mongoose.Schema({
   razorpayPaymentId: { type: String, default: null },
   description:       { type: String, default: '' },
 
-  // Entry kahan se aayi — 'admin' = admin panel se manual credit (bonus/refund/incentive).
-  // Purani entries me field nahi hai, unhe 'system' maano.
-  source:        { type: String, enum: ['system', 'razorpay', 'admin'], default: 'system' },
+  // Entry kahan se aayi — 'admin' = admin panel se manual credit (bonus/refund/incentive),
+  // 'referral' = Refer & Earn bonus (dost ne join kiya). Purani entries me field nahi hai, unhe 'system' maano.
+  source:        { type: String, enum: ['system', 'razorpay', 'admin', 'referral'], default: 'system' },
   adminCategory: { type: String, default: '' },
   requestId:     { type: String, default: null },
 }, { timestamps: true });

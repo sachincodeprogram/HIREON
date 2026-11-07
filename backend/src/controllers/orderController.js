@@ -9,6 +9,7 @@ const { success, error } = require('../utils/apiResponse');
 const { getOrCreateWallet, creditWallet, debitWallet } = require('../utils/wallet');
 const { splitFareForCommission, walletMinBalancePaise } = require('../utils/commission');
 const { getRazorpay } = require('../utils/razorpay');
+const { qualifyReferralForOrder } = require('../utils/referral');
 
 const genOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -307,13 +308,26 @@ const confirmPickup = async (req, res) => {
     if (!order) return res.status(404).json(error('Order not found'));
     if (order.rider?.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
     if (order.pickupOtp !== otp) return res.status(400).json(error('Invalid OTP'));
+    if (order.status === 'cancelled') return res.status(400).json(error('Order was cancelled'));
 
-    order.status = 'picked_up';
-    order.timeline.push({ status: 'picked_up', note: 'Parcel picked up' });
-    await order.save();
+    // Idempotent + atomic: sirf 'accepted' se 'picked_up'. Retry/duplicate request
+    // (ya delivery ke baad aayi purani pickup request) status ko peeche nahi le jaati —
+    // pehle delivered order wapas picked_up ho kar dobara deliver ho sakta tha.
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, status: 'accepted' },
+      { $set: { status: 'picked_up' }, $push: { timeline: { status: 'picked_up', note: 'Parcel picked up' } } },
+      { returnDocument: 'after' }
+    );
+    if (!updated) {
+      const current = await Order.findById(order._id);
+      if (['picked_up', 'in_transit', 'delivered'].includes(current?.status)) {
+        return res.json(success('Pickup already confirmed', current));
+      }
+      return res.status(400).json(error('Order cannot be picked up at this stage'));
+    }
 
-    req.io?.to(order._id.toString()).emit('order_update', { status: 'picked_up', deliveryOtp: order.deliveryOtp });
-    res.json(success('Pickup confirmed', order));
+    req.io?.to(updated._id.toString()).emit('order_update', { status: 'picked_up', deliveryOtp: updated.deliveryOtp });
+    res.json(success('Pickup confirmed', updated));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -323,25 +337,45 @@ const confirmPickup = async (req, res) => {
 const confirmDelivery = async (req, res) => {
   try {
     const { otp } = req.body;
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json(error('Order not found'));
-    if (order.rider?.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
-    if (order.deliveryOtp !== otp) return res.status(400).json(error('Invalid OTP'));
+    const found = await Order.findById(req.params.id);
+    if (!found) return res.status(404).json(error('Order not found'));
+    if (found.rider?.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
+    if (found.deliveryOtp !== otp) return res.status(400).json(error('Invalid OTP'));
+    if (found.status === 'cancelled') return res.status(400).json(error('Order was cancelled'));
 
-    order.status = 'delivered';
-    order.deliveredAt = new Date();
-    order.fare.final = order.fare.estimated;
-    if (order.paymentMethod === 'COD') order.paymentStatus = 'paid'; // cash collected hand-to-hand
-    order.timeline.push({ status: 'delivered', note: 'Parcel delivered successfully' });
-    await order.save();
+    // Idempotent + atomic: order sirf EK baar 'delivered' banta hai. Do request ek saath
+    // aayein (double-tap / network retry) to sirf ek hi yeh update jeetegi — wahi rider
+    // stats badhati hai. Baaki request ko pehle se delivered order milta hai.
+    const delivered = await Order.findOneAndUpdate(
+      { _id: found._id, status: { $in: ['accepted', 'picked_up', 'in_transit'] } },
+      {
+        $set: {
+          status:       'delivered',
+          deliveredAt:  new Date(),
+          'fare.final': found.fare.estimated,
+          // COD: cash collected hand-to-hand
+          ...(found.paymentMethod === 'COD' ? { paymentStatus: 'paid' } : {}),
+        },
+        $push: { timeline: { status: 'delivered', note: 'Parcel delivered successfully' } },
+      },
+      { returnDocument: 'after' }
+    );
 
-    // Update rider stats
-    await User.findByIdAndUpdate(req.user._id, {
-      $inc: { totalEarnings: order.riderEarning, totalDeliveries: 1 },
-    });
+    let order = delivered;
+    if (!delivered) {
+      order = await Order.findById(found._id);
+      if (order?.status !== 'delivered') return res.status(400).json(error('Order cannot be delivered at this stage'));
+    } else {
+      // Update rider stats — sirf us request me jisne order deliver kiya
+      await User.findByIdAndUpdate(req.user._id, {
+        $inc: { totalEarnings: order.riderEarning, totalDeliveries: 1 },
+      });
+    }
 
     // Wallet settlement — atomic + idempotent (order+type unique index), isliye
     // ek retried confirm-delivery call se double credit/debit kabhi nahi hota.
+    // Duplicate request par bhi jaan-boojh kar chalta hai: pehli request deliver
+    // karke settlement se pehle crash ho jaaye to retry baaki kaam poora kar de.
     // ONLINE: fare pehle hi Razorpay se platform ko mil chuka — rider ko
     // (fare - commission) wallet me credit karo. COD: cash pura rider ke paas
     // hai — sirf commission wallet se debit karo (balance negative ja sakta hai).
@@ -370,6 +404,10 @@ const confirmDelivery = async (req, res) => {
       // mat karo, log karke aage badho (ops reconcile kar sakta hai).
       console.error(`Wallet settlement failed for order ${order._id}:`, walletErr.message);
     }
+
+    // Refer & Earn — customer ya rider ka pehla successful order ho to unke referrer ko
+    // bonus. Kabhi throw nahi karta, delivery response par asar nahi.
+    await qualifyReferralForOrder(order);
 
     req.io?.to(order._id.toString()).emit('order_update', { status: 'delivered' });
     res.json(success('Delivery confirmed', order));

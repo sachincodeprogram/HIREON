@@ -11,5 +11,6 @@ router.use('/admin',    require('./admin'));
 router.use('/wallet',   require('./wallet'));
 router.use('/payments', require('./payments'));
 router.use('/support',  require('./support'));
+router.use('/referrals', require('./referrals'));
 
 module.exports = router;

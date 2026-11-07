@@ -42,11 +42,41 @@ const protect = async (req, res, next) => {
   }
 };
 
-const requireRole = (...roles) => (req, res, next) => {
+// Sirf token verify karo, DB profile zaroori nahi — signup ke beech wale steps
+// (jaise referral code check) ke liye, jab user ki profile abhi bani hi nahi.
+// Dev mode me `dev:<phone>` bhi chalta hai (protect jaisa hi gate).
+const decodeAuthToken = async (token) => {
+  if (process.env.NODE_ENV === 'development' && token?.startsWith('dev:')) {
+    const phone = token.slice(4);
+    return { uid: `dev_${phone}`, phone, email: '', picture: '' };
+  }
+  const decoded = await auth().verifyIdToken(token);
+  return {
+    uid:     decoded.uid,
+    phone:   decoded.phone_number || '',
+    email:   decoded.email   || '',
+    picture: decoded.picture || '',
+  };
+};
+
+const verifyToken = async (req, res, next) => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: 'Not authorized' });
+  }
+  try {
+    req.firebase = await decodeAuthToken(header.split(' ')[1]);
+    next();
+  } catch (err) {
+    res.status(401).json({ success: false, message: 'Token invalid or expired' });
+  }
+};
+
+const requireRole =(...roles) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {
     return res.status(403).json({ success: false, message: 'Access forbidden' });
   }
   next();
 };
 
-module.exports = { protect, requireRole, BLOCKED_MESSAGE };
+module.exports = { protect, verifyToken, decodeAuthToken, requireRole, BLOCKED_MESSAGE };

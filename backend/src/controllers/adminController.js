@@ -222,7 +222,7 @@ const getActivity = async (req, res) => {
         .lean(),
       User.find({ createdAt: { $gte: since } }).select('name role createdAt').sort({ createdAt: -1 }).limit(limit).lean(),
       User.find({ 'blockHistory.at': { $gte: since } }).select('name role blockHistory').limit(limit).lean(),
-      WalletTransaction.find({ source: 'admin', createdAt: { $gte: since } })
+      WalletTransaction.find({ source: { $in: ['admin', 'referral'] }, createdAt: { $gte: since } })
         .select('rider amount balanceAfter adminCategory description createdAt')
         .sort({ createdAt: -1 })
         .limit(limit)

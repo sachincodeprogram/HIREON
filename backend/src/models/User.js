@@ -20,6 +20,11 @@ const userSchema = new mongoose.Schema({
   rating:            { type: Number, default: 5.0, min: 1, max: 5 },
   ratingCount:       { type: Number, default: 0 },
 
+  // Refer & Earn — rider ka apna invite code (pehli baar Refer screen kholne par
+  // banta hai) aur naye user ke liye: kis rider ne invite kiya tha.
+  referralCode:      { type: String, default: undefined },
+  referredBy:        { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+
   deletedAt:         { type: Date, default: null },
 
   // Admin moderation — complaint aane par account block. Blocked user sirf apni
@@ -37,5 +42,12 @@ const userSchema = new mongoose.Schema({
     at:     { type: Date, default: Date.now },
   }],
 }, { timestamps: true });
+
+// Ek code sirf ek rider ka. Partial index — sirf jin docs me code hai unhi par
+// banta hai, isliye live DB par deploy ke waqt build turant ho jaata hai.
+userSchema.index(
+  { referralCode: 1 },
+  { unique: true, partialFilterExpression: { referralCode: { $type: 'string' } } }
+);
 
 module.exports = mongoose.model('User', userSchema);

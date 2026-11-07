@@ -3,33 +3,23 @@ const User         = require('../models/User');
 const Order         = require('../models/Order');
 const Wallet        = require('../models/Wallet');
 const RiderLocation = require('../models/RiderLocation');
+const { decodeAuthToken } = require('../middleware/auth');
+const { applyReferralOnSignup, identityOf } = require('../utils/referral');
 const { success, error } = require('../utils/apiResponse');
 
 // POST /api/v1/auth/register
-// Body: { name, phone, role, vehicleType?, vehicleNumber? }
-// Header: Authorization: Bearer <Firebase ID Token>
+// Body: { name, phone, role, vehicleType?, vehicleNumber?, referralCode?, referralChannel? }
+// Header: Authorization: Bearer <Firebase ID Token> (dev mode me `dev:<phone>` bhi)
 const register = async (req, res) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
-    let firebaseUid, email, picture;
-
-    // Dev mode bypass: Bearer dev:<phone>
-    if (process.env.NODE_ENV === 'development' && token?.startsWith('dev:')) {
-      const phone = token.slice(4);
-      firebaseUid = `dev_${phone}`;
-      email   = '';
-      picture = '';
-    } else {
-      const decoded = await auth().verifyIdToken(token);
-      firebaseUid = decoded.uid;
-      email   = decoded.email   || '';
-      picture = decoded.picture || '';
-    }
+    const identity = await decodeAuthToken(token);
+    const { uid: firebaseUid, email, picture } = identity;
 
     const existing = await User.findOne({ firebaseUid });
     if (existing) return res.json(success('Already registered', existing));
 
-    const { name, phone, role, vehicleType, vehicleNumber } = req.body;
+    const { name, phone, role, vehicleType, vehicleNumber, referralCode, referralChannel } = req.body;
     if (!name || !role) return res.status(400).json(error('name and role are required'));
     if (!['customer', 'rider'].includes(role)) return res.status(400).json(error('Invalid role'));
 
@@ -43,6 +33,18 @@ const register = async (req, res) => {
       vehicleType:  role === 'rider' ? (vehicleType || '') : '',
       vehicleNumber: role === 'rider' ? (vehicleNumber || '') : '',
     });
+
+    // Refer & Earn — kabhi throw nahi karta, referral me gadbad se signup fail nahi hota.
+    // Pehchaan sirf token ke verified phone/email se — body ka phone koi bhi likh sakta hai.
+    if (referralCode) {
+      const result = await applyReferralOnSignup({
+        user,
+        code:     referralCode,
+        channel:  referralChannel,
+        identity: identityOf(identity),
+      });
+      if (!result.applied) console.log(`[referral] not applied user=${user._id} reason=${result.reason}`);
+    }
 
     res.status(201).json(success('Registration successful', user));
   } catch (err) {
