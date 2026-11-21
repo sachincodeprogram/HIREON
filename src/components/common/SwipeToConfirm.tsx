@@ -31,38 +31,68 @@ const SwipeToConfirm: React.FC<Props> = ({
   const [done, setDone] = useState(false);
   const translateX = useRef(new Animated.Value(0)).current;
   const dragX = useRef(0);
-  translateX.addListener(({ value }) => { dragX.current = value; });
 
   const maxDrag = Math.max(0, trackWidth - THUMB_SIZE - TRACK_PADDING * 2);
 
-  const springTo = (toValue: number) =>
-    Animated.spring(translateX, { toValue, useNativeDriver: true, bounciness: 4 }).start();
+  // PanResponder sirf EK baar banta hai (useRef) — uske callbacks pehli render ka
+  // closure pakad lete. Pehli render par trackWidth = 0 (onLayout baad me aata
+  // hai) → maxDrag = 0 → thumb hilta hi nahi tha aur confirm kabhi nahi hota tha.
+  // Isliye har badalti value ref me rakho, callbacks hamesha latest padhenge.
+  const maxDragRef = useRef(maxDrag);
+  maxDragRef.current = maxDrag;
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
+  const blockedRef = useRef(false);
+  blockedRef.current = !!disabled || confirming || done;
+  const busyRef = useRef(false); // double-release se double confirm na ho
+
+  const springTo = (toValue: number) => {
+    dragX.current = toValue;
+    Animated.spring(translateX, { toValue, useNativeDriver: false, bounciness: 4 }).start();
+  };
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => !disabled && !confirming && !done,
-      onMoveShouldSetPanResponder: () => !disabled && !confirming && !done,
+      onStartShouldSetPanResponder: () => !blockedRef.current,
+      onStartShouldSetPanResponderCapture: () => !blockedRef.current,
+      onMoveShouldSetPanResponder: () => !blockedRef.current,
+      onMoveShouldSetPanResponderCapture: () => !blockedRef.current,
+      // Parent ScrollView gesture beech me na chheene — warna swipe adhoora reh jaata.
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+      onPanResponderGrant: () => {
+        translateX.stopAnimation();
+      },
       onPanResponderMove: (_, gesture) => {
-        const next = Math.min(Math.max(gesture.dx, 0), maxDrag);
+        const next = Math.min(Math.max(gesture.dx, 0), maxDragRef.current);
+        dragX.current = next;
         translateX.setValue(next);
       },
       onPanResponderRelease: async () => {
-        if (maxDrag <= 0) return;
-        const progress = dragX.current / maxDrag;
+        const max = maxDragRef.current;
+        if (max <= 0 || busyRef.current) { springTo(0); return; }
+        const progress = dragX.current / max;
         if (progress >= CONFIRM_THRESHOLD) {
-          springTo(maxDrag);
+          busyRef.current = true;
+          springTo(max);
           setConfirming(true);
           try {
-            await onConfirm();
+            await onConfirmRef.current();
             setDone(true);
           } catch {
             // OTP/verify fail ho gaya — thumb wapas bhejo, dobara try kar sake.
             setConfirming(false);
             springTo(0);
+          } finally {
+            busyRef.current = false;
           }
         } else {
           springTo(0);
         }
+      },
+      // Kisi aur ne gesture le liya (system/OS) — thumb wapas.
+      onPanResponderTerminate: () => {
+        if (!busyRef.current) springTo(0);
       },
     }),
   ).current;
