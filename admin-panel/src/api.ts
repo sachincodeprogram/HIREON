@@ -322,4 +322,9 @@ export const api = {
   riderWallet: (id: string) => get<RiderWallet>('/riders/' + encodeURIComponent(id) + '/wallet', { limit: 30 }),
 
   creditWallets: (input: WalletCreditInput) => request<WalletCreditResult>('POST', '/wallets/credit', { body: input }),
+
+  // Rider ne parcel de diya par app me confirm nahi ho paya — admin order complete karta hai
+  // (rider stats + commission/earning wahi jo rider ke swipe se hota)
+  markDelivered: (id: string, reason: string) =>
+    request<Order>('POST', '/orders/' + encodeURIComponent(id) + '/mark-delivered', { body: { reason } }),
 }

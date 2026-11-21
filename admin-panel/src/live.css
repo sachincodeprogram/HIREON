@@ -265,3 +265,8 @@
   .map-search-right { left: 12px; right: auto; top: 64px; }
   .map-area-stats { grid-template-columns: repeat(2, 1fr); }
 }
+
+/* admin: atke order ko delivered mark karo */
+.deliver-cta { border-color: color-mix(in srgb, var(--good) 35%, var(--border)); background: var(--good-soft); }
+.deliver-cta svg { color: var(--good); }
+.deliver-cta:hover { border-color: var(--good); }

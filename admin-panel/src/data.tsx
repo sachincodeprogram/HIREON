@@ -34,6 +34,8 @@ interface DataState {
   updateUser: (u: User) => void
   /** Wallet credit ke baad naye balance cache me daalo */
   updateBalances: (rows: { _id: string; balance: number }[]) => void
+  /** Admin action (mark delivered) ke baad order cache me patch karo */
+  updateOrder: (o: Order) => void
 }
 
 const Ctx = createContext<DataState | null>(null)
@@ -43,7 +45,7 @@ const toWallets = (w: WalletBalances | null): Wallets | null =>
 
 export function DataProvider({ children }: { children: ReactNode }) {
   const { logout } = useAuth()
-  const [state, setState] = useState<Omit<DataState, 'refresh' | 'setAutoRefresh' | 'autoRefresh' | 'updateUser' | 'updateBalances'>>({
+  const [state, setState] = useState<Omit<DataState, 'refresh' | 'setAutoRefresh' | 'autoRefresh' | 'updateUser' | 'updateBalances' | 'updateOrder'>>({
     stats: null, orders: [], riders: [], customers: [], ordersTotal: 0, usersCapped: false, wallets: null,
     loading: true, error: null, lastUpdated: null, latency: null,
   })
@@ -118,7 +120,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
     })
   }, [])
 
-  return <Ctx.Provider value={{ ...state, refresh, autoRefresh, setAutoRefresh, updateUser, updateBalances }}>{children}</Ctx.Provider>
+  const updateOrder = useCallback((o: Order) => {
+    setState(s => ({ ...s, orders: s.orders.map(x => (x._id === o._id ? { ...x, ...o } : x)) }))
+  }, [])
+
+  return <Ctx.Provider value={{ ...state, refresh, autoRefresh, setAutoRefresh, updateUser, updateBalances, updateOrder }}>{children}</Ctx.Provider>
 }
 
 // eslint-disable-next-line react-refresh/only-export-components

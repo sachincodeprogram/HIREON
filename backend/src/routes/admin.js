@@ -19,6 +19,8 @@ const adminKey = (req, res, next) => {
 
 router.get('/stats',  adminKey, ctrl.getStats);
 router.get('/orders', adminKey, ctrl.getAllOrders);
+// Atka hua (picked_up) order admin complete kare — rider wala hi settlement chalta hai
+router.post('/orders/:id/mark-delivered', adminKey, ctrl.markDelivered);
 router.get('/users',  adminKey, ctrl.getAllUsers);
 router.get('/live',   adminKey, ctrl.getLive);
 router.get('/activity', adminKey, ctrl.getActivity);

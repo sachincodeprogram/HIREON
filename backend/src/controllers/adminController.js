@@ -5,6 +5,7 @@ const RiderLocation = require('../models/RiderLocation');
 const WalletTransaction = require('../models/WalletTransaction');
 const { success, error } = require('../utils/apiResponse');
 const { getActivitySince } = require('../utils/activityLog');
+const { settleDelivery } = require('../utils/deliverOrder');
 
 // GET /api/v1/admin/stats
 const getStats = async (req, res) => {
@@ -269,4 +270,43 @@ const getActivity = async (req, res) => {
   }
 };
 
-module.exports = { getStats, getAllOrders, getAllUsers, blockUser, unblockUser, getLive, getActivity };
+// POST /api/v1/admin/orders/:id/mark-delivered — rider ne parcel de diya par app me
+// confirm nahi ho paya (jaise COD swipe bug) to admin order complete kar sakta hai.
+// Rider ke OTP+swipe wala hi settleDelivery chalta hai: rider stats, COD commission
+// debit / ONLINE earning credit, referral — sab ek hi baar (idempotent).
+// Sirf picked_up / in_transit — accepted order me parcel abhi uthaya hi nahi gaya.
+const markDelivered = async (req, res) => {
+  try {
+    const reason = String(req.body?.reason || '').trim().slice(0, 300);
+    if (reason.length < 3) return res.status(400).json(error('Reason is required'));
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json(error('Order not found'));
+
+    const found = await Order.findById(req.params.id);
+    if (!found) return res.status(404).json(error('Order not found'));
+    if (!found.rider) return res.status(400).json(error('No rider is assigned to this order'));
+    if (found.status === 'delivered') return res.status(400).json(error('Order is already delivered'));
+    if (!['picked_up', 'in_transit'].includes(found.status)) {
+      return res.status(400).json(error('Only picked-up orders can be marked delivered (current: ' + found.status + ')'));
+    }
+
+    const { order, changed } = await settleDelivery({
+      found,
+      note: 'Marked delivered by admin: ' + reason,
+      fromStatuses: ['picked_up', 'in_transit'],
+      io: req.io,
+    });
+    if (!order) return res.status(400).json(error('Order cannot be delivered at this stage'));
+    if (!changed) return res.status(400).json(error('Order is already delivered'));
+
+    const full = await Order.findById(order._id)
+      .select('-pickupOtp -deliveryOtp')
+      .populate('customer', 'name email phone')
+      .populate('rider', 'name email phone vehicleType vehicleNumber')
+      .lean();
+    res.json(success('Order marked delivered', full));
+  } catch (err) {
+    res.status(500).json(error(err.message));
+  }
+};
+
+module.exports = { getStats, getAllOrders, getAllUsers, blockUser, unblockUser, getLive, getActivity, markDelivered };

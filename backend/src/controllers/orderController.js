@@ -6,10 +6,10 @@ const { calculateFare, haversineKm } = require('../utils/fareCalculator');
 const { dispatchOrder, withdrawDispatch, registerDecline } = require('../utils/dispatch');
 const { sendAddressChangePush, sendCancelPush } = require('../utils/push');
 const { success, error } = require('../utils/apiResponse');
-const { getOrCreateWallet, creditWallet, debitWallet } = require('../utils/wallet');
-const { splitFareForCommission, walletMinBalancePaise } = require('../utils/commission');
+const { getOrCreateWallet } = require('../utils/wallet');
+const { walletMinBalancePaise } = require('../utils/commission');
 const { getRazorpay } = require('../utils/razorpay');
-const { qualifyReferralForOrder } = require('../utils/referral');
+const { settleDelivery } = require('../utils/deliverOrder');
 
 const genOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -343,73 +343,11 @@ const confirmDelivery = async (req, res) => {
     if (found.deliveryOtp !== otp) return res.status(400).json(error('Invalid OTP'));
     if (found.status === 'cancelled') return res.status(400).json(error('Order was cancelled'));
 
-    // Idempotent + atomic: order sirf EK baar 'delivered' banta hai. Do request ek saath
-    // aayein (double-tap / network retry) to sirf ek hi yeh update jeetegi — wahi rider
-    // stats badhati hai. Baaki request ko pehle se delivered order milta hai.
-    const delivered = await Order.findOneAndUpdate(
-      { _id: found._id, status: { $in: ['accepted', 'picked_up', 'in_transit'] } },
-      {
-        $set: {
-          status:       'delivered',
-          deliveredAt:  new Date(),
-          'fare.final': found.fare.estimated,
-          // COD: cash collected hand-to-hand
-          ...(found.paymentMethod === 'COD' ? { paymentStatus: 'paid' } : {}),
-        },
-        $push: { timeline: { status: 'delivered', note: 'Parcel delivered successfully' } },
-      },
-      { returnDocument: 'after' }
-    );
+    // Status, rider stats, wallet settlement, referral aur socket emit — sab
+    // utils/deliverOrder.js me (admin ka "Mark Delivered" bhi wahi use karta hai).
+    const { order } = await settleDelivery({ found, io: req.io });
+    if (!order) return res.status(400).json(error('Order cannot be delivered at this stage'));
 
-    let order = delivered;
-    if (!delivered) {
-      order = await Order.findById(found._id);
-      if (order?.status !== 'delivered') return res.status(400).json(error('Order cannot be delivered at this stage'));
-    } else {
-      // Update rider stats — sirf us request me jisne order deliver kiya
-      await User.findByIdAndUpdate(req.user._id, {
-        $inc: { totalEarnings: order.riderEarning, totalDeliveries: 1 },
-      });
-    }
-
-    // Wallet settlement — atomic + idempotent (order+type unique index), isliye
-    // ek retried confirm-delivery call se double credit/debit kabhi nahi hota.
-    // Duplicate request par bhi jaan-boojh kar chalta hai: pehli request deliver
-    // karke settlement se pehle crash ho jaaye to retry baaki kaam poora kar de.
-    // ONLINE: fare pehle hi Razorpay se platform ko mil chuka — rider ko
-    // (fare - commission) wallet me credit karo. COD: cash pura rider ke paas
-    // hai — sirf commission wallet se debit karo (balance negative ja sakta hai).
-    try {
-      const farePaise = Math.round(order.fare.final * 100);
-      const { commissionPaise, riderNetPaise } = splitFareForCommission(farePaise);
-      if (order.paymentMethod === 'ONLINE') {
-        await creditWallet({
-          riderId: req.user._id,
-          type: 'EARNING',
-          amountPaise: riderNetPaise,
-          orderId: order._id,
-          description: `Earning for order ${order.orderId}`,
-        });
-      } else {
-        await debitWallet({
-          riderId: req.user._id,
-          type: 'COMMISSION_DEBIT',
-          amountPaise: commissionPaise,
-          orderId: order._id,
-          description: `Commission for COD order ${order.orderId}`,
-        });
-      }
-    } catch (walletErr) {
-      // Delivery ho chuki — wallet settlement fail hone par bhi response block
-      // mat karo, log karke aage badho (ops reconcile kar sakta hai).
-      console.error(`Wallet settlement failed for order ${order._id}:`, walletErr.message);
-    }
-
-    // Refer & Earn — customer ya rider ka pehla successful order ho to unke referrer ko
-    // bonus. Kabhi throw nahi karta, delivery response par asar nahi.
-    await qualifyReferralForOrder(order);
-
-    req.io?.to(order._id.toString()).emit('order_update', { status: 'delivered' });
     res.json(success('Delivery confirmed', order));
   } catch (err) {
     res.status(500).json(error(err.message));

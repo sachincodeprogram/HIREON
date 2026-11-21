@@ -1,10 +1,12 @@
+import { useState } from 'react'
 import type { Order } from '../api'
 import { dateTime, money, statusLabel } from '../format'
 import { useNavigate } from 'react-router-dom'
 import { useDetail } from '../nav'
 import { isActive } from '../analytics'
 import { Avatar, CopyButton, Drawer, Field, MiniStat, Pill, StatusBadge } from '../components/ui'
-import { IconExternal, IconPin } from '../components/icons'
+import { IconCheck, IconExternal, IconPin } from '../components/icons'
+import MarkDeliveredDialog from '../components/MarkDeliveredDialog'
 
 const STEPS = ['pending', 'accepted', 'picked_up', 'in_transit', 'delivered'] as const
 
@@ -17,6 +19,7 @@ function mapsLink(o: Order) {
 export default function OrderDrawer({ order, onClose }: { order: Order | null; onClose: () => void }) {
   const { openUser } = useDetail()
   const nav = useNavigate()
+  const [delivering, setDelivering] = useState(false)
   if (!order) return null
   const o = order
   const cancelled = o.status === 'cancelled'
@@ -25,6 +28,8 @@ export default function OrderDrawer({ order, onClose }: { order: Order | null; o
     : STEPS.indexOf(o.status as typeof STEPS[number])
   const payTone = o.paymentStatus === 'paid' ? 'good' : o.paymentStatus === 'failed' ? 'bad' : 'warn'
   const map = mapsLink(o)
+  // Parcel uth chuka par order atka hai (jaise COD swipe bug) — admin complete kar sake
+  const canMarkDelivered = !!o.rider && (o.status === 'picked_up' || o.status === 'in_transit')
   const stepTime = (s: string) => s === 'pending' ? o.createdAt : o.timeline?.find(t => t.status === s)?.timestamp
 
   return (
@@ -37,6 +42,13 @@ export default function OrderDrawer({ order, onClose }: { order: Order | null; o
           <span className="live-pulse" />
           <span><span className="strong">Track live</span><span className="muted small"> · see the rider on the map and send the customer an update</span></span>
           <IconExternal />
+        </button>
+      )}
+
+      {canMarkDelivered && (
+        <button className="track-cta deliver-cta" onClick={() => setDelivering(true)}>
+          <IconCheck />
+          <span><span className="strong">Mark as delivered</span><span className="muted small"> · rider handed over the parcel but couldn’t complete it in the app</span></span>
         </button>
       )}
 
@@ -134,6 +146,7 @@ export default function OrderDrawer({ order, onClose }: { order: Order | null; o
           </ol>
         </section>
       )}
+      {delivering && <MarkDeliveredDialog order={o} onClose={() => setDelivering(false)} />}
     </Drawer>
   )
 }
