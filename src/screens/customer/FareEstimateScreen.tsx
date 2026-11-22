@@ -17,9 +17,45 @@ import useAppSelector from '../../hooks/useAppSelector';
 import { setActiveOrder, prependOrder } from '../../store/slices/orderSlice';
 import { formatCurrency, formatDistance, truncateAddress } from '../../utils/formatters';
 import { TranslationKey, useTranslation } from '../../i18n';
-import { Order } from '../../types';
+import { FareBreakdown, Order, ParcelInfo } from '../../types';
 
 type Route = RouteProp<CustomerStackParamList, 'FareEstimate'>;
+type Translate = (key: TranslationKey, params?: Record<string, string | number>) => string;
+interface BreakdownRow { label: string; value: string }
+
+// ₹58.8 → "₹58.80", ₹60 → "₹60"
+const rupees = (n: number) => '₹' + (Number.isInteger(n) ? n.toLocaleString('en-IN') : n.toFixed(2));
+
+// Rate admin panel se badalte hain — line-items backend bhejta hai, yahan sirf dikhao.
+const serverBreakdown = (b: FareBreakdown, t: Translate): BreakdownRow[] => {
+  const rows: BreakdownRow[] = b.lines.map(l => {
+    switch (l.key) {
+      case 'base':    return { label: t('fare.baseFare'), value: rupees(l.amount) };
+      case 'weight':  return { label: t('fare.weightSurcharge'), value: rupees(l.amount) };
+      case 'size':    return { label: t('fare.sizeSurcharge'), value: rupees(l.amount) };
+      case 'fragile': return { label: t('fare.fragileCharge'), value: rupees(l.amount) };
+      default: {
+        const dist = formatDistance(l.km ?? b.distanceKm);
+        const oneSlab = !l.fromKm && (l.toKm === null || l.toKm === undefined);
+        if (oneSlab) return { label: t('fare.distance', { dist }), value: rupees(l.amount) };
+        const range = l.toKm === null || l.toKm === undefined ? `${l.fromKm}+ km` : `${l.fromKm ?? 0}–${l.toKm} km`;
+        return { label: t('fare.distanceSlab', { range, dist }), value: rupees(l.amount) };
+      }
+    }
+  });
+  if (b.nightCharge > 0) rows.push({ label: `${t('fare.nightCharge')} (×${b.nightMultiplier})`, value: rupees(b.nightCharge) });
+  if (Math.abs(b.rounding) >= 0.01) rows.push({ label: t('fare.rounding'), value: (b.rounding < 0 ? '−' : '') + rupees(Math.abs(b.rounding)) });
+  return rows;
+};
+
+// Purana backend (breakdown nahi bhejta) — pehle wale fixed rate
+const legacyBreakdown = (distance: number, parcel: ParcelInfo, t: Translate): BreakdownRow[] => [
+  { label: t('fare.baseFare'),       value: '₹30' },
+  { label: t('fare.distance', { dist: formatDistance(distance) }), value: `₹${Math.round(distance * 10)}` },
+  { label: t('fare.weightSurcharge'), value: parcel.weight > 1 ? `₹${Math.round((parcel.weight - 1) * 5)}` : '₹0' },
+  { label: t('fare.sizeSurcharge'),   value: parcel.size === 'large' ? '₹30' : parcel.size === 'medium' ? '₹15' : '₹0' },
+  { label: t('fare.fragileCharge'),   value: parcel.isFragile ? '₹20' : '₹0' },
+];
 
 const FareEstimateScreen = () => {
   const navigation = useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
@@ -122,13 +158,9 @@ const FareEstimateScreen = () => {
     return m > 0 ? `${h}h ${m}min` : `${h}h`;
   };
 
-  const breakdown = [
-    { label: t('fare.baseFare'),       value: '₹30' },
-    { label: t('fare.distance', { dist: formatDistance(estimate.distance) }), value: `₹${Math.round(estimate.distance * 10)}` },
-    { label: t('fare.weightSurcharge'), value: parcel.weight > 1 ? `₹${Math.round((parcel.weight - 1) * 5)}` : '₹0' },
-    { label: t('fare.sizeSurcharge'),   value: parcel.size === 'large' ? '₹30' : parcel.size === 'medium' ? '₹15' : '₹0' },
-    { label: t('fare.fragileCharge'),   value: parcel.isFragile ? '₹20' : '₹0' },
-  ];
+  const breakdown = estimate.breakdown?.lines?.length
+    ? serverBreakdown(estimate.breakdown, t)
+    : legacyBreakdown(estimate.distance, parcel, t);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>

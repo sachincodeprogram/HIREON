@@ -97,10 +97,34 @@ export interface Order {
   updatedAt: string;
 }
 
+// Backend (admin panel ke rate) se aane wala fare line-item
+export interface FareLine {
+  key: 'base' | 'distance' | 'weight' | 'size' | 'fragile';
+  label: string;
+  detail?: string;
+  amount: number;
+  fromKm?: number;
+  toKm?: number | null;
+  km?: number;
+}
+
+export interface FareBreakdown {
+  distanceKm: number;
+  lines: FareLine[];
+  subtotal: number;
+  night: boolean;
+  nightMultiplier: number;
+  nightCharge: number;
+  rounding: number;
+  total: number;
+}
+
 export interface FareEstimate {
   estimated: number;
   riderEarning: number;
   distance: number;
+  /** Purana backend ho to nahi aata — tab screen purana fixed breakdown dikhati hai */
+  breakdown?: FareBreakdown;
 }
 
 export interface EarningsData {
