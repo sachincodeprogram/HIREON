@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type SVGProps } from 'react'
-import { api, ApiError, type ActivityEvent } from '../api'
+import { api, ApiError, isLive, type ActivityEvent } from '../api'
 import { useAuth } from '../auth'
 import { useData } from '../data'
 import { useDetail } from '../nav'
@@ -150,7 +150,7 @@ export default function Activity() {
       orders: recent.filter(e => e.type === 'order' && e.status === 'pending').length,
       delivered: recent.filter(e => e.type === 'order' && e.status === 'delivered' && !/rating/i.test(e.note ?? '')).length,
       signups: recent.filter(e => e.type === 'signup').length,
-      online: data.riders.filter(r => r.isOnline && !r.isBlocked).length,
+      online: data.riders.filter(r => isLive(r) && !r.isBlocked).length,
     }
   }, [events, data.riders])
 

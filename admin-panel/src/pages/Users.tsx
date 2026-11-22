@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react'
-import type { User } from '../api'
+import { isLive, isNoSignal, type User } from '../api'
 import { useData } from '../data'
 import { useDetail } from '../nav'
 import { downloadCsv, statsBy, toCsv, type PersonStats } from '../analytics'
-import { ago, date, money, num, paise } from '../format'
+import { ago, date, dateTime, money, num, paise } from '../format'
 import WalletDialog, { type WalletTarget } from '../components/WalletDialog'
 import {
   Avatar, Card, Empty, ErrorBox, Kpi, Notice, PageHeader, Pagination, Pill, Segmented, SkeletonRows, SortTh, useSortedPaged,
@@ -12,7 +12,7 @@ import { IconDownload, IconPlus, IconSearch, IconStar, IconWallet, IconX } from 
 
 type RiderKey = 'name' | 'deliveries' | 'earnings' | 'wallet' | 'rating' | 'joined'
 type CustKey = 'name' | 'orders' | 'spend' | 'last' | 'joined'
-type Filter = 'all' | 'online' | 'offline' | 'active' | 'inactive' | 'low_wallet' | 'blocked' | 'deleted'
+type Filter = 'all' | 'online' | 'offline' | 'no_signal' | 'active' | 'inactive' | 'low_wallet' | 'blocked' | 'deleted'
 
 const EMPTY: PersonStats = { orders: 0, delivered: 0, cancelled: 0, spend: 0 }
 
@@ -37,8 +37,9 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
     return people.filter(u => {
       if (n && ![u.name, u.phone, u.email, u.vehicleNumber].some(v => v?.toLowerCase().includes(n))) return false
       switch (filter) {
-        case 'online': return !!u.isOnline
-        case 'offline': return !u.isOnline
+        case 'online': return isLive(u)
+        case 'offline': return !isLive(u)
+        case 'no_signal': return isNoSignal(u)
         case 'active': return (stats.get(u._id)?.orders ?? 0) > 0
         case 'inactive': return !(stats.get(u._id)?.orders)
         case 'low_wallet': return !!w && (w.balances.get(u._id) ?? 0) < w.minBalance
@@ -57,7 +58,8 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
     name: u => u.name.toLowerCase(), orders: u => st(u).orders, spend: u => st(u).spend, last: u => st(u).last ?? '', joined: u => u.createdAt,
   }, { key: 'joined', dir: 'desc' })
 
-  const online = d.riders.filter(r => r.isOnline).length
+  const online = d.riders.filter(isLive).length
+  const noSignal = d.riders.filter(isNoSignal).length
   const withOrders = d.customers.filter(c => stats.get(c._id)?.orders).length
   const totalEarn = d.riders.reduce((s, r) => s + (r.totalEarnings || 0), 0)
   const rated = d.riders.filter(r => r.ratingCount)
@@ -68,7 +70,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
   const exportCsv = () => downloadCsv('hireon-' + role + 's-' + new Date().toISOString().slice(0, 10) + '.csv', toCsv(
     (isRider ? riderSort.sorted : custSort.sorted).map(u => isRider ? {
       name: u.name, phone: u.phone, email: u.email, vehicle_type: u.vehicleType, vehicle_number: u.vehicleNumber,
-      online: u.isOnline, blocked: !!u.isBlocked, block_reason: u.blockReason ?? '', deliveries: u.totalDeliveries, earnings: u.totalEarnings, wallet_balance: w ? bal(u) / 100 : '', rating: u.rating, rating_count: u.ratingCount,
+      online: isLive(u), duty_switch_on: !!u.isOnline, last_gps: u.lastSeenAt ?? '', blocked: !!u.isBlocked, block_reason: u.blockReason ?? '', deliveries: u.totalDeliveries, earnings: u.totalEarnings, wallet_balance: w ? bal(u) / 100 : '', rating: u.rating, rating_count: u.ratingCount,
       joined: u.createdAt, deleted: u.deletedAt ?? '',
     } : {
       name: u.name, phone: u.phone, email: u.email, orders: st(u).orders, delivered: st(u).delivered,
@@ -79,7 +81,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
   const walletTotal = w ? d.riders.reduce((s, r) => s + (w.balances.get(r._id) ?? 0), 0) : 0
   const lowWallet = w ? d.riders.filter(r => !r.deletedAt && (w.balances.get(r._id) ?? 0) < w.minBalance).length : 0
   const filters: { value: Filter; label: string; count?: number }[] = isRider
-    ? [{ value: 'all', label: 'All' }, { value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }, ...(w ? [{ value: 'low_wallet' as Filter, label: 'Low wallet', count: lowWallet }] : []), { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
+    ? [{ value: 'all', label: 'All' }, { value: 'online', label: 'Online' }, { value: 'offline', label: 'Offline' }, ...(noSignal ? [{ value: 'no_signal' as Filter, label: 'No GPS', count: noSignal }] : []), ...(w ? [{ value: 'low_wallet' as Filter, label: 'Low wallet', count: lowWallet }] : []), { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
     : [{ value: 'all', label: 'All' }, { value: 'active', label: 'Has ordered' }, { value: 'inactive', label: 'Never ordered' }, { value: 'blocked', label: 'Blocked', count: blockedCount }, { value: 'deleted', label: 'Deleted' }]
 
   const t = isRider ? riderSort : custSort
@@ -113,7 +115,7 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
       <div className={'kpi-grid' + (walletOn ? '' : ' kpi-grid-4')}>
         {isRider ? <>
           <Kpi loading={loading} label="Total riders" value={num(d.riders.length)} hint={num(newThisWeek) + ' joined this week'} />
-          <Kpi loading={loading} label="Online now" value={<>{num(online)}<span className="kpi-of">/{num(d.riders.length)}</span></>} hint="available to accept orders" />
+          <Kpi loading={loading} label="Online now" value={<>{num(online)}<span className="kpi-of">/{num(d.riders.length)}</span></>} hint={noSignal ? num(noSignal) + ' on duty with no GPS signal' : 'live GPS · matches Live tracking'} />
           <Kpi loading={loading} label="Total paid out" value={money(totalEarn)} hint="lifetime rider earnings" />
           {walletOn && <Kpi loading={loading} label="Wallet balance" value={paise(walletTotal)} hint={num(lowWallet) + ' below COD limit'} />}
           <Kpi loading={loading} label="Average rating" value={avgRating ? avgRating.toFixed(2) + ' ★' : '—'} hint={num(rated.length) + ' riders rated'} />
@@ -182,12 +184,16 @@ export default function Users({ role }: { role: 'rider' | 'customer' }) {
                     <div className="user-cell">
                       <span className="avatar-wrap">
                         <Avatar name={u.name} src={u.avatar} size={34} />
-                        {isRider && <span className={'presence-dot' + (u.isOnline ? ' on' : '')} />}
+                        {isRider && <span className={'presence-dot' + (isLive(u) ? ' on' : isNoSignal(u) ? ' warn' : '')} />}
                       </span>
                       <div>
                         <div className="strong">{u.name}</div>
                         <div className="user-tags">
-                          {isRider && <span className={'presence' + (u.isOnline ? ' on' : '')}>{u.isOnline ? 'Online' : 'Offline'}</span>}
+                          {isRider && (isLive(u)
+                            ? <span className="presence on">Online</span>
+                            : isNoSignal(u)
+                              ? <span className="presence warn" title={'Duty is switched on in the app, but no GPS update' + (u.lastSeenAt ? ' since ' + dateTime(u.lastSeenAt) : '') + '. Not counted as online.'}>No GPS{u.lastSeenAt ? ' · ' + ago(u.lastSeenAt) : ''}</span>
+                              : <span className="presence">Offline</span>)}
                           {u.isBlocked && <Pill tone="bad">Blocked</Pill>}
                           {u.deletedAt && <Pill tone="bad">Deleted</Pill>}
                         </div>

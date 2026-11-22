@@ -56,6 +56,10 @@ export interface User {
   vehicleType?: string
   vehicleNumber?: string
   isOnline?: boolean
+  /** Backend ka presence: duty ON + (socket connected ya 5 min ke andar GPS) — Live map wala rule */
+  live?: boolean
+  /** Rider ki aakhri GPS location kab aayi */
+  lastSeenAt?: string | null
   totalEarnings?: number
   totalDeliveries?: number
   rating?: number
@@ -67,6 +71,11 @@ export interface User {
   blockHistory?: { action: 'block' | 'unblock'; reason?: string; at: string }[]
   createdAt: string
 }
+
+/** Rider sach me online hai? Purana backend (live field nahi) ho to isOnline par fallback. */
+export const isLive = (u: Pick<User, 'live' | 'isOnline'>) => u.live ?? !!u.isOnline
+/** Duty ON hai par GPS/connection nahi aa raha — app band/kill ho gaya */
+export const isNoSignal = (u: Pick<User, 'live' | 'isOnline' | 'isBlocked'>) => !!u.isOnline && !u.isBlocked && u.live === false
 
 export interface Stats {
   users: { total: number; riders: number; customers: number }
@@ -101,7 +110,7 @@ export const clearKey = () => {
 
 type Params = Record<string, string | number | undefined>
 
-async function request<T>(method: 'GET' | 'PATCH' | 'POST', path: string, opts: { params?: Params; body?: unknown; key?: string | null } = {}): Promise<T> {
+async function request<T>(method: 'GET' | 'PATCH' | 'POST' | 'PUT', path: string, opts: { params?: Params; body?: unknown; key?: string | null } = {}): Promise<T> {
   const qs = new URLSearchParams()
   Object.entries(opts.params ?? {}).forEach(([k, v]) => { if (v !== undefined && v !== '') qs.set(k, String(v)) })
   const query = qs.toString()
@@ -150,6 +159,83 @@ export interface LiveRider {
 }
 
 export interface LiveData { serverTime: string; orders: Order[]; riders: LiveRider[] }
+
+export interface Slab { upToKm: number | null; perKmRate: number }
+
+/** Admin panel se badalne wala rate card + commission (backend utils/pricing.js) */
+export interface PricingConfig {
+  baseFare: number
+  minDistanceKm: number
+  slabs: Slab[]
+  weightLimitKg: number
+  weightRate: number
+  fragileCharge: number
+  sizeCharges: { small: number; medium: number; large: number }
+  nightEnabled: boolean
+  nightMultiplier: number
+  /** IST */
+  nightStartHour: number
+  nightEndHour: number
+  commissionPercent: number
+}
+
+export interface Pricing extends PricingConfig { version: number; updatedAt: string | null; isDefault: boolean }
+
+export interface PricingChange { _id: string; version: number; previous: PricingConfig | null; config: PricingConfig; note: string; createdAt: string }
+
+export interface PricingAdmin { pricing: Pricing; defaults: PricingConfig; history: PricingChange[] }
+
+export interface FareLine { key: 'base' | 'distance' | 'weight' | 'size' | 'fragile'; label: string; detail?: string; amount: number; fromKm?: number; toKm?: number | null; km?: number; rate?: number }
+
+export interface FareBreakdown {
+  distanceKm: number
+  lines: FareLine[]
+  subtotal: number
+  night: boolean
+  nightMultiplier: number
+  nightCharge: number
+  rounding: number
+  total: number
+  /** Pricing system se pehle ka order — purane fixed rate se dobara banaya gaya */
+  legacy?: boolean
+}
+
+export interface Quote { estimated: number; distance: number; riderEarning: number; commission: number; commissionPercent: number; breakdown: FareBreakdown }
+
+export interface QuoteInput { distanceKm: number; weightKg: number; size: string; fragile: boolean; night: boolean }
+
+export interface PricingPreview {
+  error: string | null
+  samples?: { km: number; current: { fare: number; commission: number; riderEarning: number }; draft: { fare: number; commission: number; riderEarning: number } }[]
+  quote?: { current: Quote; draft: Quote }
+  impact?: { orders: number; currentFare: number; draftFare: number; currentCommission: number; draftCommission: number }
+}
+
+export interface CommissionRow {
+  _id: string
+  orderId: string
+  customer: { _id: string; name: string; phone?: string } | null
+  rider: { _id: string; name: string; phone?: string } | null
+  paymentMethod: 'COD' | 'ONLINE'
+  paymentStatus?: string
+  createdAt: string
+  deliveredAt?: string
+  farePaise: number
+  /** Rupees — rider app me order par jo kamai dikhi thi */
+  appRiderEarning: number
+  pricingVersion: number | null
+  commissionPercent: number | null
+  expectedCommissionPaise: number
+  breakdown: FareBreakdown
+  settlement: { type: 'EARNING' | 'COMMISSION_DEBIT'; amountPaise: number; commissionPaise: number; balanceAfterPaise: number; at: string } | null
+}
+
+export interface CommissionData {
+  serverTime: string
+  capped: boolean
+  config: { pricing: Pricing; walletMinBalancePaise: number }
+  rows: CommissionRow[]
+}
 
 export interface ActivityRef { _id: string; name: string; role?: 'customer' | 'rider' }
 
@@ -295,6 +381,17 @@ export const api = {
   },
 
   live: () => get<LiveData>('/live'),
+
+  commission: (days: number) => get<CommissionData>('/commission', { days }),
+
+  pricing: () => get<PricingAdmin>('/pricing'),
+
+  // Save hote hi naye orders/estimate isi rate par bante hain (backend cache ~15s)
+  savePricing: (config: PricingConfig, note: string, version: number) =>
+    request<{ pricing: Pricing; history: PricingChange[] }>('PUT', '/pricing', { body: { config, note, version } }),
+
+  previewPricing: (config: PricingConfig, quote: QuoteInput) =>
+    request<PricingPreview>('POST', '/pricing/preview', { body: { config, quote } }),
 
   activity: (since?: string) => get<ActivityData>('/activity', { since, limit: 200 }),
 

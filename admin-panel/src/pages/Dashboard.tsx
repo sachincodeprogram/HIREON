@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useData, ordersCapped } from '../data'
+import { isLive } from '../api'
 import { useDetail } from '../nav'
 import { DAY, dailySeries, isActive, periodTotals, pctChange, startOfDay } from '../analytics'
 import { ago, money, num, orderFare, statusLabel } from '../format'
@@ -65,7 +66,7 @@ export default function Dashboard() {
     return { cur, prev, rate: rate(cur), prevRate: rate(prev), series, spark, counts, pay, topRiders, activity }
   }, [d.orders, days])
 
-  const online = d.riders.filter(r => r.isOnline).length
+  const online = d.riders.filter(isLive).length
   const rateDelta = m.rate !== null && m.prevRate !== null ? m.rate - m.prevRate : null
   const fmtDay = (t: number) => new Date(t).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
   const compact = (n: number) => '₹' + (n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'k' : Math.round(n))
@@ -198,7 +199,7 @@ export default function Dashboard() {
                   <div className="muted small">{[r.vehicleType, r.phone].filter(Boolean).join(' · ')}</div>
                 </div>
                 <span className="muted small">{ago(r.createdAt)}</span>
-                <span className={'presence' + (r.isOnline ? ' on' : '')}>{r.isOnline ? 'Online' : 'Offline'}</span>
+                <span className={'presence' + (isLive(r) ? ' on' : '')}>{isLive(r) ? 'Online' : 'Offline'}</span>
               </li>
             ))}
           </ul>

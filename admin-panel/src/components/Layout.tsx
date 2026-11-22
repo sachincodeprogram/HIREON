@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement, type SVGProps } from 'react'
-import { api } from '../api'
+import { api, isLive } from '../api'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth'
 import { useData } from '../data'
@@ -10,7 +10,7 @@ import OrderDrawer from '../pages/OrderDrawer'
 import UserDrawer from '../pages/UserDrawer'
 import {
   IconActivity, IconBike, IconBox, IconChart, IconHeadset, IconMap, IconDashboard, IconLogout, IconMenu, IconMoon, IconRefresh,
-  IconSearch, IconServer, IconSun, IconUsers,
+  IconRupee, IconSearch, IconServer, IconSun, IconUsers,
 } from './icons'
 
 interface NavItem { to: string; label: string; icon: (p: SVGProps<SVGSVGElement>) => ReactElement; end?: boolean; badge?: 'active' | 'online' | 'support' }
@@ -25,6 +25,9 @@ const SECTIONS: { title: string; items: NavItem[] }[] = [
     { to: '/live', label: 'Live tracking', icon: IconMap, badge: 'active' },
     { to: '/orders', label: 'Orders', icon: IconBox },
     { to: '/support', label: 'Support', icon: IconHeadset, badge: 'support' },
+  ] },
+  { title: 'Finance', items: [
+    { to: '/commission', label: 'Commission', icon: IconRupee },
   ] },
   { title: 'People', items: [
     { to: '/riders', label: 'Riders', icon: IconBike, badge: 'online' },
@@ -86,7 +89,7 @@ export default function Layout() {
   const section = SECTIONS.find(s => current && s.items.includes(current))
   const badges = {
     active: data.stats?.orders.active,
-    online: data.riders.filter(r => r.isOnline).length || undefined,
+    online: data.riders.filter(isLive).length || undefined,
     support: supportUnread,
   }
   const order = detail.orderId ? data.orders.find(o => o._id === detail.orderId) ?? null : null

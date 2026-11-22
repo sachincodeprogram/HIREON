@@ -11,6 +11,7 @@ import System from './pages/System'
 import Live from './pages/Live'
 import Activity from './pages/Activity'
 import Support from './pages/Support'
+import Commission from './pages/Commission'
 import { ToastProvider } from './toast'
 
 function Gate() {
@@ -27,6 +28,7 @@ function Gate() {
             <Route path="live" element={<Live />} />
             <Route path="orders" element={<Orders />} />
             <Route path="support" element={<Support />} />
+            <Route path="commission" element={<Commission />} />
             <Route path="riders" element={<Users role="rider" key="rider" />} />
             <Route path="customers" element={<Users role="customer" key="customer" />} />
             <Route path="system" element={<System />} />

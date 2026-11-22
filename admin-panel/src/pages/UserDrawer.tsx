@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import type { User } from '../api'
+import { isLive, isNoSignal, type User } from '../api'
 import { useData } from '../data'
 import { useDetail } from '../nav'
 import { isActive, ordersOf } from '../analytics'
-import { date, dateTime, money, num, orderFare } from '../format'
+import { ago, date, dateTime, money, num, orderFare } from '../format'
 import BlockDialog from '../components/BlockDialog'
 import WalletSection from './WalletSection'
 import { Avatar, CopyButton, Drawer, Field, MiniStat, Pill, StatusBadge } from '../components/ui'
@@ -59,7 +59,10 @@ export default function UserDrawer({ user, onClose }: { user: User | null; onClo
             <Field label="Phone">{u.phone ? <a className="link" href={'tel:' + u.phone}>{u.phone}</a> : ''}</Field>
             <Field label="Email">{u.email}</Field>
             {isRider && <>
-              <Field label="Duty">{u.isOnline ? <Pill tone="good">Online</Pill> : <Pill>Offline</Pill>}</Field>
+              <Field label="Duty">{isLive(u) ? <Pill tone="good">Online</Pill>
+                : isNoSignal(u) ? <Pill tone="warn">On duty · no GPS signal</Pill>
+                : <Pill>Offline</Pill>}</Field>
+              <Field label="Last GPS update">{u.lastSeenAt ? ago(u.lastSeenAt) + ' · ' + dateTime(u.lastSeenAt) : 'Never'}</Field>
               <Field label="Vehicle">{[u.vehicleType, u.vehicleNumber].filter(Boolean).join(' · ')}</Field>
               <Field label="Ratings received">{num(u.ratingCount)}</Field>
               <Field label="Completion rate">{completion}</Field>
