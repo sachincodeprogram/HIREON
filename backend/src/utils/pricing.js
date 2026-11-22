@@ -21,6 +21,7 @@ const DEFAULTS = () => ({
   weightRate: 5,
   fragileCharge: 20,
   sizeCharges: { small: 0, medium: 15, large: 30 },
+  stopCharge: 20,
   nightEnabled: true,
   nightMultiplier: 1.2,
   nightStartHour: 22,
@@ -32,7 +33,9 @@ const FIELDS = Object.keys(DEFAULTS());
 const r2 = n => Math.round(n * 100) / 100;
 const pick = doc => {
   const out = {};
-  for (const k of FIELDS) out[k] = doc[k];
+  const d = DEFAULTS();
+  // Naya field (jaise stopCharge) purane saved config me nahi hota — default lagao
+  for (const k of FIELDS) out[k] = doc[k] ?? d[k];
   out.slabs = (doc.slabs || []).map(s => ({ upToKm: s.upToKm ?? null, perKmRate: s.perKmRate }));
   out.sizeCharges = { small: doc.sizeCharges?.small ?? 0, medium: doc.sizeCharges?.medium ?? 0, large: doc.sizeCharges?.large ?? 0 };
   return out;
@@ -83,6 +86,7 @@ function validatePricing(input) {
     weightRate:        num(input.weightRate, 'Weight rate', 0, 1000),
     fragileCharge:     num(input.fragileCharge, 'Fragile charge', 0, 5000),
     sizeCharges,
+    stopCharge:        num(input.stopCharge ?? 0, 'Extra stop charge', 0, 5000),
     nightEnabled,
     nightMultiplier:   num(input.nightMultiplier, 'Night multiplier', 1, 3),
     nightStartHour:    hour(input.nightStartHour, 'Night start'),
@@ -153,7 +157,7 @@ const kmText = n => String(r2(n));
 
 // Tiered slabs: har slab ke km apne rate se (jaise income tax brackets).
 // Return me line-items bhi — customer app, rider app aur admin panel teeno yahi dikhate hain.
-function computeFare(cfg, { distanceKm, parcel = {}, at = new Date(), night } = {}) {
+function computeFare(cfg, { distanceKm, parcel = {}, at = new Date(), night, stopCount = 0 } = {}) {
   const rawKm = Math.max(Number(distanceKm) || 0, 0);
   const d = Math.max(rawKm, cfg.minDistanceKm);
   const lines = [{ key: 'base', label: 'Base fare', amount: cfg.baseFare }];
@@ -183,6 +187,10 @@ function computeFare(cfg, { distanceKm, parcel = {}, at = new Date(), night } = 
   const size = SIZES.includes(parcel.size) ? parcel.size : 'small';
   if (cfg.sizeCharges[size] > 0) lines.push({ key: 'size', label: 'Parcel size', detail: size, amount: cfg.sizeCharges[size] });
   if (parcel.isFragile && cfg.fragileCharge > 0) lines.push({ key: 'fragile', label: 'Fragile handling', amount: cfg.fragileCharge });
+  const stops = Math.max(0, Math.floor(Number(stopCount) || 0));
+  if (stops > 0 && cfg.stopCharge > 0) {
+    lines.push({ key: 'stops', label: stops === 1 ? 'Extra stop' : 'Extra stops', detail: `${stops} × ₹${cfg.stopCharge}`, count: stops, amount: r2(stops * cfg.stopCharge) });
+  }
 
   const subtotal = r2(lines.reduce((s, l) => s + l.amount, 0));
   const isNight = night ?? isNightIST(cfg, at);

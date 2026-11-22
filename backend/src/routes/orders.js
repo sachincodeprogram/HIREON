@@ -15,6 +15,7 @@ router.post('/:id/accept',       protect, requireRole('rider'),    ctrl.acceptOr
 router.post('/:id/decline',      protect, requireRole('rider'),    ctrl.declineOrder);
 router.post('/:id/pickup',       protect, requireRole('rider'),    ctrl.confirmPickup);
 router.post('/:id/deliver',      protect, requireRole('rider'),    ctrl.confirmDelivery);
+router.post('/:id/stops/:index/deliver', protect, requireRole('rider'), ctrl.deliverStop);
 router.patch('/:id/delivery-address', protect, requireRole('customer'), ctrl.updateDeliveryAddress);
 router.post('/:id/rate',         protect, requireRole('customer'), ctrl.rateOrder);
 router.post('/:id/cancel',       protect, ctrl.cancelOrder);

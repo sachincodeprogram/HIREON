@@ -14,11 +14,21 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Poore route ki doori: pickup → stop1 → stop2 → … → final delivery (har leg jodo)
+function routeKm(points) {
+  let km = 0;
+  for (let i = 1; i < points.length; i++) {
+    km += haversineKm(points[i - 1].lat, points[i - 1].lng, points[i].lat, points[i].lng);
+  }
+  return km;
+}
+
 // { estimated, riderEarning, distance, commission, commissionPercent, pricingVersion, breakdown }
-async function calculateFare({ pickup, delivery, parcel = {} }) {
+// stops = beech ke stops ke coordinates ({lat,lng}[]), final delivery alag.
+async function calculateFare({ pickup, delivery, stops = [], parcel = {} }) {
   const cfg = await getPricing();
-  const distanceKm = haversineKm(pickup.lat, pickup.lng, delivery.lat, delivery.lng);
-  return computeFare(cfg, { distanceKm, parcel });
+  const distanceKm = routeKm([pickup, ...stops, delivery]);
+  return computeFare(cfg, { distanceKm, parcel, stopCount: stops.length });
 }
 
 // Order par save hone wala snapshot (fare.*)
@@ -32,4 +42,4 @@ const fareSnapshot = f => ({
   breakdown: f.breakdown,
 });
 
-module.exports = { calculateFare, haversineKm, fareSnapshot };
+module.exports = { calculateFare, haversineKm, routeKm, fareSnapshot };

@@ -13,6 +13,45 @@ const { settleDelivery } = require('../utils/deliverOrder');
 
 const genOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
+// ── Multi-stop ──────────────────────────────────────────────────────────────
+const MAX_STOPS = 3;
+const isCoord = c => c && Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng)) &&
+  Math.abs(Number(c.lat)) <= 90 && Math.abs(Number(c.lng)) <= 180;
+const badRequest = msg => Object.assign(new Error(msg), { status: 400 });
+
+// Customer ke bheje beech ke stops saaf karo. Galat ho to 400.
+// withAddress=false: estimate sirf coordinates bhejta hai ([{lat,lng}] ya [{coordinates}]).
+function parseStops(raw, { withAddress = true } = {}) {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw badRequest('stops must be a list');
+  if (raw.length > MAX_STOPS) throw badRequest(`You can add up to ${MAX_STOPS} stops`);
+  return raw.map((s, i) => {
+    const c = s?.coordinates ?? s;
+    if (!isCoord(c)) throw badRequest(`Stop ${i + 1}: location is missing`);
+    const coordinates = { lat: Number(c.lat), lng: Number(c.lng) };
+    if (!withAddress) return coordinates;
+    const address = String(s?.address || '').trim();
+    if (!address) throw badRequest(`Stop ${i + 1}: address is missing`);
+    return {
+      address: address.slice(0, 300),
+      coordinates,
+      contactName:  String(s?.contactName || '').trim().slice(0, 80),
+      contactPhone: String(s?.contactPhone || '').trim().slice(0, 20),
+    };
+  });
+}
+
+// Rider ko OTP kabhi na bhejo — OTP customer/receiver se lena hi handoff ka saboot hai
+// (rider app OTP fields use nahi karta). Customer ko poora order milta hai.
+function forViewer(order, user) {
+  if (!order || user?.role !== 'rider') return order;
+  const o = typeof order.toObject === 'function' ? order.toObject() : { ...order };
+  delete o.pickupOtp;
+  delete o.deliveryOtp;
+  if (Array.isArray(o.stops)) o.stops = o.stops.map(({ otp, ...s }) => s);
+  return o;
+}
+
 // Socket payload jo riders ko bheja jata hai (create + redispatch dono yahi use karte hain).
 const buildOrderPayload = (order) => ({
   _id:          order._id.toString(),
@@ -22,6 +61,8 @@ const buildOrderPayload = (order) => ({
   fare:         order.fare,          // full object: { estimated, final, distance }
   riderEarning: order.riderEarning,
   parcel:       order.parcel,
+  // Beech ke stops (OTP ke bina) — rider ko ring par hi pata chale kitne drop hain
+  stops:        (order.stops || []).map(s => ({ address: s.address, coordinates: s.coordinates, status: s.status })),
   status:       order.status,
   createdAt:    order.createdAt,
   updatedAt:    order.updatedAt,
@@ -34,11 +75,12 @@ const estimateFare = async (req, res) => {
     if (!pickup?.lat || !pickup?.lng || !delivery?.lat || !delivery?.lng) {
       return res.status(400).json(error('pickup and delivery coordinates required'));
     }
+    const stops = parseStops(req.body.stops, { withAddress: false });
     // Admin panel ke live rate se — breakdown.lines customer app ki fare screen dikhati hai
-    const result = await calculateFare({ pickup, delivery, parcel });
+    const result = await calculateFare({ pickup, delivery, stops, parcel });
     res.json(success('Fare estimated', result));
   } catch (err) {
-    res.status(500).json(error(err.message));
+    res.status(err.status || 500).json(error(err.message));
   }
 };
 
@@ -49,14 +91,19 @@ const createOrder = async (req, res) => {
     if (!pickup || !delivery) return res.status(400).json(error('pickup and delivery required'));
 
     const method = paymentMethod === 'ONLINE' ? 'ONLINE' : 'COD';
+    // Beech ke stops (max 3) — har stop ka apna OTP; rider inhe kram se deliver karega
+    const stops = parseStops(req.body.stops).map(s => ({ ...s, otp: genOtp(), status: 'pending' }));
     // Fare + commission isi waqt ke rate par lock — baad me admin rate badle to is order par asar nahi
-    const quote = await calculateFare({ pickup: pickup.coordinates, delivery: delivery.coordinates, parcel });
+    const quote = await calculateFare({
+      pickup: pickup.coordinates, delivery: delivery.coordinates, stops: stops.map(s => s.coordinates), parcel,
+    });
     const { riderEarning } = quote;
 
     const order = await Order.create({
       customer: req.user._id,
       pickup,
       delivery,
+      stops,
       parcel:   parcel || {},
       fare:     fareSnapshot(quote),
       status:   'pending',
@@ -79,7 +126,7 @@ const createOrder = async (req, res) => {
 
     res.status(201).json(success('Order placed', order));
   } catch (err) {
-    res.status(500).json(error(err.message));
+    res.status(err.status || 500).json(error(err.message));
   }
 };
 
@@ -164,7 +211,7 @@ const getOrders = async (req, res) => {
     const orders = await Order.find(query).sort({ createdAt: -1 }).limit(50)
       .populate('customer', 'name phone avatar')
       .populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
-    res.json(success('Orders fetched', orders));
+    res.json(success('Orders fetched', orders.map(o => forViewer(o, req.user))));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -177,7 +224,7 @@ const getOrder = async (req, res) => {
       .populate('customer', 'name phone avatar')
       .populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
     if (!order) return res.status(404).json(error('Order not found'));
-    res.json(success('Order fetched', order));
+    res.json(success('Order fetched', forViewer(order, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -198,7 +245,7 @@ const getPendingOrders = async (req, res) => {
     })
       .sort({ createdAt: -1 }).limit(20)
       .populate('customer', 'name phone avatar');
-    res.json(success('Pending orders', orders));
+    res.json(success('Pending orders', orders.map(o => forViewer(o, req.user))));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -345,6 +392,11 @@ const confirmDelivery = async (req, res) => {
     if (found.rider?.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
     if (found.deliveryOtp !== otp) return res.status(400).json(error('Invalid OTP'));
     if (found.status === 'cancelled') return res.status(400).json(error('Order was cancelled'));
+    // Multi-stop: final drop tabhi jab saare beech ke stops deliver ho chuke hon
+    const pendingStop = (found.stops || []).findIndex(s => s.status !== 'delivered');
+    if (found.status !== 'delivered' && pendingStop !== -1) {
+      return res.status(400).json(error(`Deliver stop ${pendingStop + 1} first`));
+    }
 
     // Status, rider stats, wallet settlement, referral aur socket emit — sab
     // utils/deliverOrder.js me (admin ka "Mark Delivered" bhi wahi use karta hai).
@@ -352,6 +404,41 @@ const confirmDelivery = async (req, res) => {
     if (!order) return res.status(400).json(error('Order cannot be delivered at this stage'));
 
     res.json(success('Delivery confirmed', order));
+  } catch (err) {
+    res.status(500).json(error(err.message));
+  }
+};
+
+// POST /api/v1/orders/:id/stops/:index/deliver  — rider ek beech ka stop OTP se deliver karta hai.
+// Stops kram se hi: pehla pending stop hi deliver ho sakta hai. Idempotent (retry par wahi order).
+const deliverStop = async (req, res) => {
+  try {
+    const index = parseInt(req.params.index, 10);
+    const otp = String(req.body?.otp || '');
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json(error('Order not found'));
+    if (order.rider?.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
+    const stop = order.stops?.[index];
+    if (!stop) return res.status(404).json(error('Stop not found'));
+    if (stop.status === 'delivered') return res.json(success('Stop already delivered', forViewer(order, req.user)));
+    if (!['picked_up', 'in_transit'].includes(order.status)) return res.status(400).json(error('Pick up the parcel first'));
+    const firstPending = order.stops.findIndex(s => s.status !== 'delivered');
+    if (firstPending !== index) return res.status(400).json(error(`Deliver stop ${firstPending + 1} first`));
+    if (stop.otp !== otp) return res.status(400).json(error('Invalid OTP'));
+
+    // Atomic: sirf tab jab ye stop abhi bhi pending ho (double-tap par ek hi baar)
+    const updated = await Order.findOneAndUpdate(
+      { _id: order._id, [`stops.${index}.status`]: 'pending' },
+      {
+        $set: { [`stops.${index}.status`]: 'delivered', [`stops.${index}.deliveredAt`]: new Date() },
+        $push: { timeline: { status: order.status, note: `Stop ${index + 1} delivered` } },
+      },
+      { returnDocument: 'after' }
+    );
+    const result = updated || await Order.findById(order._id);
+    // OTP room me mat bhejo (rider bhi room me hai) — customer app ye dekh kar order dobara laata hai
+    req.io?.to(order._id.toString()).emit('order_update', { status: result.status, stopsUpdated: true });
+    res.json(success(`Stop ${index + 1} delivered`, forViewer(result, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -384,6 +471,7 @@ const updateDeliveryAddress = async (req, res) => {
     const quote = await calculateFare({
       pickup: order.pickup.coordinates,
       delivery: coordinates,
+      stops: (order.stops || []).map(s => s.coordinates),
       parcel: order.parcel,
     });
     const { estimated } = quote;
@@ -517,4 +605,4 @@ const cancelOrder = async (req, res) => {
   }
 };
 
-module.exports = { estimateFare, createOrder, createOrderPaymentOrder, verifyOrderPayment, getOrders, getOrder, getPendingOrders, getNearbyRiders, redispatchOrder, acceptOrder, declineOrder, confirmPickup, confirmDelivery, updateDeliveryAddress, rateOrder, cancelOrder, buildOrderPayload };
+module.exports = { estimateFare, createOrder, createOrderPaymentOrder, verifyOrderPayment, getOrders, getOrder, getPendingOrders, getNearbyRiders, redispatchOrder, acceptOrder, declineOrder, confirmPickup, confirmDelivery, deliverStop, updateDeliveryAddress, rateOrder, cancelOrder, buildOrderPayload };

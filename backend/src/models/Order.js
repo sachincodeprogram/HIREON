@@ -12,6 +12,19 @@ const locationSchema = new mongoose.Schema({
   contactPhone: { type: String, default: '' },
 }, { _id: false });
 
+// Beech ke delivery stops (pickup aur final `delivery` ke beech, max 3). Rider inhe
+// kram se deliver karta hai — har stop ka apna 4-digit OTP. Final drop `delivery` hi
+// rehta hai, taaki purana code/admin/tracking bina badle chalta rahe.
+const stopSchema = new mongoose.Schema({
+  address:      { type: String, required: true },
+  coordinates:  { type: coordinatesSchema, required: true },
+  contactName:  { type: String, default: '' },
+  contactPhone: { type: String, default: '' },
+  otp:          { type: String, default: '' },
+  status:       { type: String, enum: ['pending', 'delivered'], default: 'pending' },
+  deliveredAt:  { type: Date },
+}, { _id: false });
+
 const timelineSchema = new mongoose.Schema({
   status:    String,
   note:      { type: String, default: '' },
@@ -25,6 +38,7 @@ const orderSchema = new mongoose.Schema({
 
   pickup:   { type: locationSchema, required: true },
   delivery: { type: locationSchema, required: true },
+  stops:    { type: [stopSchema], default: [] },
 
   parcel: {
     description: { type: String, default: 'Parcel' },

@@ -19,6 +19,7 @@ const pricingFields = {
     medium: { type: Number, required: true },
     large:  { type: Number, required: true },
   },
+  stopCharge:        { type: Number, default: 20 }, // har extra stop par
   nightEnabled:      { type: Boolean, required: true },
   nightMultiplier:   { type: Number, required: true },
   nightStartHour:    { type: Number, required: true }, // IST
