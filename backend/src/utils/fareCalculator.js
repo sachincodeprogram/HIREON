@@ -1,11 +1,6 @@
-const BASE_FARE       = 30;   // ₹
-const PER_KM_RATE     = 10;   // ₹/km
-const WEIGHT_LIMIT    = 1;    // kg free
-const WEIGHT_RATE     = 5;    // ₹/kg above limit
-const FRAGILE_CHARGE  = 20;   // ₹
-const SIZE_CHARGES    = { small: 0, medium: 15, large: 30 };
-const NIGHT_MULTIPLIER = 1.2; // 10pm–6am
-const PLATFORM_CUT    = 0.20; // 20%
+const { getPricing, computeFare } = require('./pricing');
+
+// Rate ab admin panel se aate hain (utils/pricing.js + PricingConfig) — yahan hardcode nahi.
 
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R = 6371;
@@ -19,25 +14,22 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function calculateFare({ pickup, delivery, parcel = {} }) {
-  const { lat: lat1, lng: lng1 } = pickup;
-  const { lat: lat2, lng: lng2 } = delivery;
-  const distance = Math.max(haversineKm(lat1, lng1, lat2, lng2), 0.5);
-
-  let fare = BASE_FARE + distance * PER_KM_RATE;
-
-  const weight = parcel.weight || 1;
-  if (weight > WEIGHT_LIMIT) fare += (weight - WEIGHT_LIMIT) * WEIGHT_RATE;
-  if (parcel.isFragile) fare += FRAGILE_CHARGE;
-  fare += SIZE_CHARGES[parcel.size] || 0;
-
-  const hour = new Date().getHours();
-  if (hour >= 22 || hour < 6) fare *= NIGHT_MULTIPLIER;
-
-  const estimated = Math.round(fare);
-  const riderEarning = Math.round(estimated * (1 - PLATFORM_CUT));
-
-  return { estimated, riderEarning, distance: parseFloat(distance.toFixed(2)) };
+// { estimated, riderEarning, distance, commission, commissionPercent, pricingVersion, breakdown }
+async function calculateFare({ pickup, delivery, parcel = {} }) {
+  const cfg = await getPricing();
+  const distanceKm = haversineKm(pickup.lat, pickup.lng, delivery.lat, delivery.lng);
+  return computeFare(cfg, { distanceKm, parcel });
 }
 
-module.exports = { calculateFare, haversineKm };
+// Order par save hone wala snapshot (fare.*)
+const fareSnapshot = f => ({
+  estimated: f.estimated,
+  final: f.estimated,
+  distance: f.distance,
+  commissionPercent: f.commissionPercent,
+  commission: f.commission,
+  pricingVersion: f.pricingVersion,
+  breakdown: f.breakdown,
+});
+
+module.exports = { calculateFare, haversineKm, fareSnapshot };

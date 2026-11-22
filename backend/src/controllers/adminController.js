@@ -62,6 +62,26 @@ const getAllOrders = async (req, res) => {
   }
 };
 
+// Rider "sach me online" hai ya nahi — Live map wala hi rule: duty ON + block nahi +
+// (socket connected YA pichhle 5 min me GPS aaya). Sirf isOnline flag pe bharosa nahi —
+// app kill/uninstall hone par wo true hi reh jaata hai aur online count galat dikhta hai.
+const LIVE_STALE_MS = 5 * 60 * 1000;
+const attachPresence = async (users, onlineRiders) => {
+  const riders = users.filter(u => u.role === 'rider');
+  if (!riders.length) return;
+  const locs = await RiderLocation.find({ rider: { $in: riders.map(r => r._id) } }).select('rider updatedAt').lean();
+  const seenBy = new Map(locs.map(l => [l.rider.toString(), l.updatedAt]));
+  const connected = onlineRiders || new Map();
+  const now = Date.now();
+  for (const r of riders) {
+    const id = r._id.toString();
+    const seen = seenBy.get(id) || null;
+    const fresh = !!seen && now - new Date(seen).getTime() <= LIVE_STALE_MS;
+    r.lastSeenAt = seen;
+    r.live = !!r.isOnline && !r.isBlocked && !r.deletedAt && (connected.has(id) || fresh);
+  }
+};
+
 // GET /api/v1/admin/users
 const getAllUsers = async (req, res) => {
   try {
@@ -75,7 +95,8 @@ const getAllUsers = async (req, res) => {
       .limit(limit)
       .lean();
     const total = await User.countDocuments(query);
-    res.json(success('Users fetched', { users, total, page, pages: Math.ceil(total / limit) }));
+    await attachPresence(users, req.onlineRiders);
+    res.json(success('Users fetched',{ users, total, page, pages: Math.ceil(total / limit) }));
   } catch (err) {
     res.status(500).json(error(err.message));
   }

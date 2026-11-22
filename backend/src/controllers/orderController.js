@@ -2,7 +2,7 @@ const crypto         = require('crypto');
 const Order          = require('../models/Order');
 const User           = require('../models/User');
 const RiderLocation  = require('../models/RiderLocation');
-const { calculateFare, haversineKm } = require('../utils/fareCalculator');
+const { calculateFare, haversineKm, fareSnapshot } = require('../utils/fareCalculator');
 const { dispatchOrder, withdrawDispatch, registerDecline } = require('../utils/dispatch');
 const { sendAddressChangePush, sendCancelPush } = require('../utils/push');
 const { success, error } = require('../utils/apiResponse');
@@ -34,7 +34,8 @@ const estimateFare = async (req, res) => {
     if (!pickup?.lat || !pickup?.lng || !delivery?.lat || !delivery?.lng) {
       return res.status(400).json(error('pickup and delivery coordinates required'));
     }
-    const result = calculateFare({ pickup, delivery, parcel });
+    // Admin panel ke live rate se — breakdown.lines customer app ki fare screen dikhati hai
+    const result = await calculateFare({ pickup, delivery, parcel });
     res.json(success('Fare estimated', result));
   } catch (err) {
     res.status(500).json(error(err.message));
@@ -48,14 +49,16 @@ const createOrder = async (req, res) => {
     if (!pickup || !delivery) return res.status(400).json(error('pickup and delivery required'));
 
     const method = paymentMethod === 'ONLINE' ? 'ONLINE' : 'COD';
-    const { estimated, riderEarning, distance } = calculateFare({ pickup: pickup.coordinates, delivery: delivery.coordinates, parcel });
+    // Fare + commission isi waqt ke rate par lock — baad me admin rate badle to is order par asar nahi
+    const quote = await calculateFare({ pickup: pickup.coordinates, delivery: delivery.coordinates, parcel });
+    const { riderEarning } = quote;
 
     const order = await Order.create({
       customer: req.user._id,
       pickup,
       delivery,
       parcel:   parcel || {},
-      fare:     { estimated, final: estimated, distance },
+      fare:     fareSnapshot(quote),
       status:   'pending',
       paymentMethod: method,
       pickupOtp:   genOtp(),
@@ -377,15 +380,15 @@ const updateDeliveryAddress = async (req, res) => {
     if (contactName  !== undefined) order.delivery.contactName  = contactName;
     if (contactPhone !== undefined) order.delivery.contactPhone = contactPhone;
 
-    const { estimated, riderEarning, distance } = calculateFare({
+    // Naya address = naya quote, aaj ke rate se (commission snapshot bhi naya)
+    const quote = await calculateFare({
       pickup: order.pickup.coordinates,
       delivery: coordinates,
       parcel: order.parcel,
     });
-    order.fare.estimated = estimated;
-    order.fare.final     = estimated;
-    order.fare.distance  = distance;
-    order.riderEarning   = riderEarning;
+    const { estimated } = quote;
+    order.fare           = fareSnapshot(quote);
+    order.riderEarning   = quote.riderEarning;
 
     const diff = estimated - oldFare;
     order.timeline.push({

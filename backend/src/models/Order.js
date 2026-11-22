@@ -37,6 +37,13 @@ const orderSchema = new mongoose.Schema({
     estimated: { type: Number, required: true },
     final:     { type: Number, default: 0 },
     distance:  { type: Number, default: 0 },     // km
+    // Order banate waqt ka pricing snapshot — admin baad me rate badle to bhi is order
+    // ka commission/rider kamai wahi rahe jo rider ne accept karte waqt dekhi thi.
+    // Purane orders me ye field nahi hain (null) — unpar env/current rate lagta hai.
+    commissionPercent: { type: Number, default: null },
+    commission:        { type: Number, default: null }, // ₹, poore rupaye
+    pricingVersion:    { type: Number, default: null },
+    breakdown:         { type: mongoose.Schema.Types.Mixed, default: null },
   },
 
   status: {

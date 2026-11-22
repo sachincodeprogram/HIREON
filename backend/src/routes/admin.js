@@ -3,6 +3,7 @@ const router = require('express').Router();
 const ctrl   = require('../controllers/adminController');
 const support = require('../controllers/supportController');
 const wallets = require('../controllers/adminWalletController');
+const commission = require('../controllers/adminCommissionController');
 
 // Admin routes — API key header check. Key set na ho to sab band (pehle undefined === undefined
 // se bina header ke access mil sakta tha). Timing-safe compare taaki key guess na ho sake.
@@ -24,6 +25,12 @@ router.post('/orders/:id/mark-delivered', adminKey, ctrl.markDelivered);
 router.get('/users',  adminKey, ctrl.getAllUsers);
 router.get('/live',   adminKey, ctrl.getLive);
 router.get('/activity', adminKey, ctrl.getActivity);
+// Commission & charges — har delivered order ka fare breakdown + platform/rider split
+router.get('/commission', adminKey, commission.getCommission);
+// Pricing — rate card + distance slabs + commission %, admin panel se badalte hain
+router.get('/pricing',          adminKey, commission.getPricingAdmin);
+router.put('/pricing',          adminKey, commission.updatePricing);
+router.post('/pricing/preview', adminKey, commission.previewPricing);
 
 router.patch('/users/:id/block',   adminKey, ctrl.blockUser);
 router.patch('/users/:id/unblock', adminKey, ctrl.unblockUser);

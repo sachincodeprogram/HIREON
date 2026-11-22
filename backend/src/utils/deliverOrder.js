@@ -1,7 +1,7 @@
 const Order = require('../models/Order');
 const User  = require('../models/User');
 const { creditWallet, debitWallet } = require('./wallet');
-const { splitFareForCommission } = require('./commission');
+const { orderCommissionSplit } = require('./commission');
 const { qualifyReferralForOrder } = require('./referral');
 
 // Order ko 'delivered' banane ka EK hi raasta — rider ka OTP+swipe confirm aur admin
@@ -57,8 +57,7 @@ const settleDelivery = async ({
   // (fare - commission) wallet me credit karo. COD: cash pura rider ke paas
   // hai — sirf commission wallet se debit karo (balance negative ja sakta hai).
   try {
-    const farePaise = Math.round(order.fare.final * 100);
-    const { commissionPaise, riderNetPaise } = splitFareForCommission(farePaise);
+    const { commissionPaise, riderNetPaise } = await orderCommissionSplit(order);
     if (order.paymentMethod === 'ONLINE') {
       await creditWallet({
         riderId,
