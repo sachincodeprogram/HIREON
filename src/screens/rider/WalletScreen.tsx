@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Alert, RefreshControl, ActivityIndicator } from 'react-native';
+import { KeyboardAwareScrollView } from '../../components/common/KeyboardAware';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -94,8 +95,9 @@ const WalletScreen = () => {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <ScreenHeader title={t('wallet.myWallet')} subtitle={t('wallet.headerSub')} canGoBack onBack={() => navigation.goBack()} />
-      <ScrollView
+      <KeyboardAwareScrollView
         contentContainerStyle={styles.content}
+        extraOffset={80}
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.secondary]} tintColor={COLORS.secondary} />}>
 
@@ -209,7 +211,7 @@ const WalletScreen = () => {
         </View>
 
         <View style={{ height: 24 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 };

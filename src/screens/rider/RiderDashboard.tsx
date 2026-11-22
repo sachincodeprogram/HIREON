@@ -766,6 +766,15 @@ const RiderDashboard = () => {
                     <Text style={styles.routeText} numberOfLines={2}>{ringOrder.pickup.address}</Text>
                   </View>
                   <View style={styles.routeConnector} />
+                  {ringOrder.stops?.length ? (
+                    <>
+                      <View style={styles.routeRow}>
+                        <View style={[styles.routeDot, { backgroundColor: COLORS.warning }]} />
+                        <Text style={[styles.routeText, { color: COLORS.warning, fontWeight: '800' }]}>{t('orders.stopsCount', { n: ringOrder.stops.length })}</Text>
+                      </View>
+                      <View style={styles.routeConnector} />
+                    </>
+                  ) : null}
                   <View style={styles.routeRow}>
                     <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
                     <Text style={styles.routeText} numberOfLines={2}>{ringOrder.delivery.address}</Text>

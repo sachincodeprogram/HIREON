@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Modal, TextInput, TouchableOpacity,
-  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import MapView, { PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { COLORS } from '../../constants/api';
 import { RADIUS } from '../../constants/theme';
 import Button from './Button';
+import { KeyboardSafeView } from './KeyboardAware';
 import { reverseGeocode } from '../../services/locationService';
 import { Coordinates } from '../../types';
 import { useTranslation } from '../../i18n';
@@ -73,9 +73,8 @@ const MapPinConfirm: React.FC<Props> = ({
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       {visible && (
-        <KeyboardAvoidingView
-          style={styles.container}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        // Address type karte waqt neeche ka card (box + Confirm) keyboard ke upar uthe; map chhota ho jaata hai
+        <KeyboardSafeView style={styles.container}>
 
           {/* Header */}
           <View style={styles.header}>
@@ -136,7 +135,7 @@ const MapPinConfirm: React.FC<Props> = ({
               disabled={!address.trim()}
             />
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardSafeView>
       )}
     </Modal>
   );

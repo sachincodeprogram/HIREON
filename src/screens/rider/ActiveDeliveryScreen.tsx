@@ -12,7 +12,7 @@ import { useAppDispatch } from '../../hooks/useAppDispatch';
 import { setActiveOrder } from '../../store/slices/orderSlice';
 import { connectSocket, getSocket, joinOrderRoom, leaveOrderRoom, emitRiderLocation, onSocketReconnect } from '../../services/socketService';
 import { notifyOrderCancelled, clearCancelNotification } from '../../services/orderCancelNotification';
-import { getOrderById, confirmPickup, confirmDelivery } from '../../services/orderService';
+import { getOrderById, confirmPickup, confirmDelivery, deliverStop } from '../../services/orderService';
 import { requestLocationPermission, getCurrentPosition } from '../../services/locationService';
 import { fetchRoute } from '../../services/routeService';
 import apiClient from '../../services/apiClient';
@@ -21,6 +21,13 @@ import StatusBadge  from '../../components/common/StatusBadge';
 import SwipeToConfirm from '../../components/common/SwipeToConfirm';
 import ScreenHeader from '../../components/navigation/ScreenHeader';
 import OrderCancelledOverlay from '../../components/common/OrderCancelledOverlay';
+import { KeyboardAwareScrollView, useKeyboard, useKeyboardAware } from '../../components/common/KeyboardAware';
+
+// OTP boxes ke saath unke neeche ka Confirm button bhi keyboard ke upar dikhe
+const OTP_REVEAL_BELOW = 84;
+
+// Pickup ke baad rider ka agla drop: pehla pending beech ka stop, warna final delivery
+const currentDrop = (o: Order) => o.stops?.find(s => s.status !== 'delivered') ?? o.delivery;
 import { Order, Coordinates, UserProfile } from '../../types';
 import { formatCurrency, truncateAddress } from '../../utils/formatters';
 import { translate, useTranslation } from '../../i18n';
@@ -46,14 +53,13 @@ const distanceMeters = (a: Coordinates, b: Coordinates) => {
 // par digits clip ho jaate the). Peeche ek invisible TextInput input capture
 // karta hai; boxes par tap karte hi keyboard khul jaata hai.
 const OtpBoxes = ({
-  value, onChange, color, disabled, onFocus,
+  value, onChange, color, disabled,
 }: {
   value: string; onChange: (v: string) => void; color: string; disabled: boolean;
-  /** Keyboard khulne par parent screen ko scroll karne ka mauka — warna boxes
-   *  keyboard ke peeche chhup jaate hain aur rider ko typed digits nahi dikhte. */
-  onFocus?: () => void;
 }) => {
   const inputRef = useRef<TextInput>(null);
+  // Keyboard khulte hi boxes + Confirm button upar — rider ko har typed digit dikhe
+  const keyboardAware = useKeyboardAware();
   return (
     <Pressable
       style={styles.otpBoxWrap}
@@ -80,7 +86,7 @@ const OtpBoxes = ({
         style={styles.otpHiddenInput}
         value={value}
         onChangeText={v => onChange(v.replace(/[^0-9]/g, '').slice(0, 4))}
-        onFocus={onFocus}
+        onFocus={() => keyboardAware?.revealFocused(OTP_REVEAL_BELOW)}
         keyboardType="number-pad"
         maxLength={4}
         editable={!disabled}
@@ -118,11 +124,15 @@ const ActiveDeliveryScreen = () => {
   const lastRouteOrigin = useRef<Coordinates | null>(null);
   const lastRouteTarget = useRef<Coordinates | null>(null);
 
-  // OTP par focus hote hi sheet ko neeche tak scroll karo — warna keyboard
-  // boxes ko dhak deta hai aur rider ko typed digits nahi dikhte.
-  const scrollOtpIntoView = () => {
-    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 250);
-  };
+  // OTP type karte waqt map chhota — neeche ki sheet ko keyboard ke upar jagah mile
+  const keyboard = useKeyboard();
+
+  // Multi-stop: abhi kis drop par jaana hai (stop ya final) — map, route, OTP sab isi par
+  const stops          = order?.stops ?? [];
+  const nextStopIdx    = stops.findIndex(s => s.status !== 'delivered');
+  const activeDrop     = order ? currentDrop(order) : null;
+  const dropLat        = activeDrop?.coordinates.lat;
+  const dropLng        = activeDrop?.coordinates.lng;
 
   // Animate pickup→delivery transition banner
   const showTransitionBanner = () => {
@@ -250,7 +260,7 @@ const ActiveDeliveryScreen = () => {
     if (!order || !mapRef.current) return;
     const targetCoords = order.status === 'accepted'
       ? order.pickup.coordinates
-      : order.delivery.coordinates;
+      : currentDrop(order).coordinates;
     if (!targetCoords) return;
     if (riderPos) {
       // GPS available — frame both the rider and the target
@@ -267,7 +277,7 @@ const ActiveDeliveryScreen = () => {
         longitudeDelta: 0.02,
       }, 600);
     }
-  }, [order?._id, order?.status, order?.delivery.coordinates.lat, order?.delivery.coordinates.lng, riderPos]);
+  }, [order?._id, order?.status, dropLat, dropLng, riderPos]);
 
   // Fetch a road-following route (rider → current target) and draw it as a blue
   // Polyline. Uses the shared routeService (Google Directions → OSRM fallback),
@@ -277,7 +287,7 @@ const ActiveDeliveryScreen = () => {
     if (!riderPos || !order || order.status === 'cancelled') return;
     const target = order.status === 'accepted'
       ? order.pickup.coordinates
-      : order.delivery.coordinates;
+      : currentDrop(order).coordinates;
     if (!target) return;
 
     // Avoid spamming the routing API: only refetch when the target changed or the
@@ -318,7 +328,7 @@ const ActiveDeliveryScreen = () => {
     })();
     return () => { cancelled = true; };
     // delivery coords bhi deps me — customer address badle to route turant redraw ho
-  }, [riderPos?.lat, riderPos?.lng, order?.status, order?.delivery.coordinates.lat, order?.delivery.coordinates.lng]);
+  }, [riderPos?.lat, riderPos?.lng, order?.status, dropLat, dropLng]);
 
   const handlePickupConfirm = async () => {
     if (!withinRange) {
@@ -364,6 +374,31 @@ const ActiveDeliveryScreen = () => {
     }
   };
 
+  // Beech ka stop — OTP se deliver; cash/commission sirf final drop par
+  const handleStopConfirm = async () => {
+    if (!withinRange) {
+      return Alert.alert(t('active.farDelivery'), t('active.farDeliveryMsg'));
+    }
+    if (!otp || otp.length !== 4) {
+      return Alert.alert(t('active.wrongOtp'), t('active.wrongOtpMsg'));
+    }
+    const n = nextStopIdx + 1;
+    try {
+      setLoading(true);
+      const updated = await deliverStop(orderId, nextStopIdx, otp);
+      setOrder(updated);
+      dispatch(setActiveOrder(updated));
+      setOtp('');
+      setRouteDistance(null);
+      setRouteDuration(null);
+      Alert.alert(t('active.stopDelivered', { n }), t('active.stopDeliveredMsg'));
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDeliveryConfirm = () => {
     if (!withinRange) {
       return Alert.alert(t('active.farDelivery'), t('active.farDeliveryMsg'));
@@ -382,7 +417,9 @@ const ActiveDeliveryScreen = () => {
   };
 
   const pickupCoords   = order?.pickup.coordinates;
-  const deliveryCoords = order?.delivery.coordinates;
+  const deliveryCoords = activeDrop?.coordinates;
+  const finalCoords    = order?.delivery.coordinates;
+  const onStop         = order?.status === 'picked_up' && nextStopIdx >= 0;
   const isPickup   = order?.status === 'accepted';
   const isDelivery = order?.status === 'picked_up';
   const isDone     = order?.status === 'delivered';
@@ -395,11 +432,11 @@ const ActiveDeliveryScreen = () => {
 
   const startNavigation = () => {
     if (!order) return;
-    const target = isPickup ? order.pickup : order.delivery;
+    const target = isPickup ? order.pickup : currentDrop(order);
     (navigation as any).navigate('Navigation', {
       orderId,
       destination:        target.coordinates,
-      label:              isPickup ? 'Pickup' : 'Delivery',
+      label:              isPickup ? 'Pickup' : onStop ? `Stop ${nextStopIdx + 1}` : 'Delivery',
       destinationAddress: target.address,
     });
   };
@@ -425,14 +462,15 @@ const ActiveDeliveryScreen = () => {
   const pickupLatLng   = pickupCoords
     ? { latitude: pickupCoords.lat, longitude: pickupCoords.lng }
     : null;
-  const deliveryLatLng = deliveryCoords
-    ? { latitude: deliveryCoords.lat, longitude: deliveryCoords.lng }
+  const deliveryLatLng = finalCoords
+    ? { latitude: finalCoords.lat, longitude: finalCoords.lng }
     : null;
 
   const stepTitle = isCancelled ? t('cancel.title')
     : isPickup ? t('rider.goPickup') : isDelivery ? t('rider.goDelivery') : t('active.deliveryDone');
   const stepSub   = isCancelled ? t('cancel.byOther')
     : isPickup ? t('active.pickupSub')
+    : onStop ? t('active.dropsProgress', { done: nextStopIdx, total: stops.length + 1 })
     : isDelivery ? t('active.deliverySub') : t('active.allDone');
 
   const formatDuration = (min: number) =>
@@ -448,7 +486,7 @@ const ActiveDeliveryScreen = () => {
       />
 
       {/* Map */}
-      <View style={styles.mapWrapper}>
+      <View style={[styles.mapWrapper, keyboard.visible && styles.mapWrapperCompact]}>
         <MapView
           ref={mapRef}
           style={styles.map}
@@ -481,6 +519,16 @@ const ActiveDeliveryScreen = () => {
           {pickupLatLng && (
             <Marker coordinate={pickupLatLng} title={t('map.pickup')} pinColor="green" />
           )}
+
+          {/* Beech ke stops — delivered wale halke */}
+          {stops.map((s, i) => (
+            <Marker
+              key={'stop-' + i}
+              coordinate={{ latitude: s.coordinates.lat, longitude: s.coordinates.lng }}
+              title={t('map.stopN', { n: i + 1 })}
+              pinColor={s.status === 'delivered' ? 'gray' : 'orange'}
+            />
+          ))}
 
           {/* Delivery marker */}
           {deliveryLatLng && (
@@ -526,11 +574,11 @@ const ActiveDeliveryScreen = () => {
         </Animated.View>
       )}
 
-      <ScrollView
+      <KeyboardAwareScrollView
         ref={scrollRef}
         style={styles.sheet}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
+        extraOffset={OTP_REVEAL_BELOW}
+        showsVerticalScrollIndicator={false}>
         {order && (
           <>
             {/* Order header */}
@@ -590,16 +638,36 @@ const ActiveDeliveryScreen = () => {
                 {isPickup && <View style={styles.activePill}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
               </View>
               <View style={styles.routeConnector} />
+              {stops.map((s, i) => {
+                const done = s.status === 'delivered';
+                const active = isDelivery && i === nextStopIdx;
+                return (
+                  <React.Fragment key={'stop-' + i}>
+                    <View style={[styles.routeRow, done && styles.routeRowDone]}>
+                      <View style={[styles.routeDot, { backgroundColor: done ? COLORS.textLight : COLORS.warning }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.routeLabel}>{t('map.stopN', { n: i + 1 })}{done ? ' ✓' : ''}</Text>
+                        <Text style={styles.routeAddr} numberOfLines={2}>{truncateAddress(s.address, 80)}</Text>
+                        {s.contactName ? (
+                          <Text style={styles.contactText}>👤 {s.contactName} · {s.contactPhone}</Text>
+                        ) : null}
+                      </View>
+                      {active && <View style={[styles.activePill, { backgroundColor: COLORS.warning }]}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
+                    </View>
+                    <View style={styles.routeConnector} />
+                  </React.Fragment>
+                );
+              })}
               <View style={styles.routeRow}>
                 <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.routeLabel}>{t('map.delivery')}</Text>
+                  <Text style={styles.routeLabel}>{stops.length ? t('active.finalDrop') : t('map.delivery')}</Text>
                   <Text style={styles.routeAddr} numberOfLines={2}>{truncateAddress(order.delivery.address, 80)}</Text>
                   {order.delivery.contactName ? (
                     <Text style={styles.contactText}>👤 {order.delivery.contactName} · {order.delivery.contactPhone}</Text>
                   ) : null}
                 </View>
-                {isDelivery && <View style={[styles.activePill, { backgroundColor: COLORS.primary }]}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
+                {isDelivery && !onStop && <View style={[styles.activePill, { backgroundColor: COLORS.primary }]}><Text style={styles.activePillText}>{t('active.go')}</Text></View>}
               </View>
             </View>
 
@@ -609,7 +677,7 @@ const ActiveDeliveryScreen = () => {
                 <Text style={styles.navCtaIcon}>🧭</Text>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.navCtaText}>{t('active.startNav')}</Text>
-                  <Text style={styles.navCtaSub}>{t('active.navSub', { target: isPickup ? t('map.pickup') : t('map.delivery') })}</Text>
+                  <Text style={styles.navCtaSub}>{t('active.navSub', { target: isPickup ? t('map.pickup') : onStop ? t('map.stopN', { n: nextStopIdx + 1 }) : t('map.delivery') })}</Text>
                 </View>
                 <Text style={styles.navCtaArrow}>›</Text>
               </TouchableOpacity>
@@ -630,7 +698,7 @@ const ActiveDeliveryScreen = () => {
                     {rangeMsg.text}
                   </Text>
                 </View>
-                <OtpBoxes value={otp} onChange={setOtp} color={COLORS.success} disabled={!withinRange} onFocus={scrollOtpIntoView} />
+                <OtpBoxes value={otp} onChange={setOtp} color={COLORS.success} disabled={!withinRange} />
                 <Button
                   title={withinRange ? t('active.confirmPickup') : t('active.goNearPickup')}
                   onPress={handlePickupConfirm}
@@ -642,8 +710,35 @@ const ActiveDeliveryScreen = () => {
               </View>
             )}
 
+            {/* OTP Section - beech ka stop (receiver se OTP) */}
+            {onStop && (
+              <View style={[styles.otpSection, { borderColor: COLORS.warning + '80' }]}>
+                <View style={styles.otpHeader}>
+                  <Text style={styles.otpIcon}>📌</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.otpTitle}>{t('active.enterStopOtp', { n: nextStopIdx + 1 })}</Text>
+                    <Text style={styles.otpHint}>{t('active.otpHint')}</Text>
+                  </View>
+                </View>
+                <View style={[styles.rangeBanner, rangeMsg.ok ? styles.rangeBannerOk : styles.rangeBannerWarn]}>
+                  <Text style={[styles.rangeText, { color: rangeMsg.ok ? COLORS.success : COLORS.warning }]}>
+                    {rangeMsg.text}
+                  </Text>
+                </View>
+                <OtpBoxes value={otp} onChange={setOtp} color={COLORS.warning} disabled={!withinRange} />
+                <Button
+                  title={withinRange ? t('active.confirmStop', { n: nextStopIdx + 1 }) : t('active.goNearStop', { n: nextStopIdx + 1 })}
+                  onPress={handleStopConfirm}
+                  loading={loading}
+                  disabled={!withinRange}
+                  variant="primary"
+                  style={{ marginTop: 4 }}
+                />
+              </View>
+            )}
+
             {/* OTP Section - Delivery */}
-            {isDelivery && !showCashCard && (
+            {isDelivery && !onStop && !showCashCard && (
               <View style={[styles.otpSection, { borderColor: COLORS.primary + '60' }]}>
                 <View style={styles.otpHeader}>
                   <Text style={styles.otpIcon}>🔑</Text>
@@ -657,7 +752,7 @@ const ActiveDeliveryScreen = () => {
                     {rangeMsg.text}
                   </Text>
                 </View>
-                <OtpBoxes value={otp} onChange={setOtp} color={COLORS.primary} disabled={!withinRange} onFocus={scrollOtpIntoView} />
+                <OtpBoxes value={otp} onChange={setOtp} color={COLORS.primary} disabled={!withinRange} />
                 <Button
                   title={withinRange ? t('active.confirmDelivery') : t('active.goNearDelivery')}
                   onPress={handleDeliveryConfirm}
@@ -747,7 +842,7 @@ const ActiveDeliveryScreen = () => {
           </>
         )}
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       <OrderCancelledOverlay
         // Navigation screen upar khuli ho to wahi card dikhati hai — double na ho
@@ -763,6 +858,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
 
   mapWrapper: { height: 280, position: 'relative' },
+  mapWrapperCompact: { height: 110 },
   map:        { flex: 1 },
   mapOverlay: {
     position: 'absolute', bottom: 10, left: 10,
@@ -860,6 +956,7 @@ const styles = StyleSheet.create({
   },
   routeRow:       { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   routeDot:       { width: 10, height: 10, borderRadius: 5, marginTop: 4, flexShrink: 0 },
+  routeRowDone: { opacity: 0.55 },
   routeConnector: { width: 1, height: 18, backgroundColor: COLORS.border, marginLeft: 4.5, marginVertical: 4 },
   routeLabel:     { fontSize: 10, fontWeight: '700', color: COLORS.textMuted, letterSpacing: 0.3, marginBottom: 2 },
   routeAddr:      { fontSize: 13, color: COLORS.text, fontWeight: '500', lineHeight: 18 },

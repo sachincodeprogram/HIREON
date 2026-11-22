@@ -2,6 +2,7 @@ import React, { useState, forwardRef, useRef, useImperativeHandle } from 'react'
 import { View, TextInput, Text, StyleSheet, Pressable, KeyboardTypeOptions, ViewStyle } from 'react-native';
 import { COLORS } from '../../constants/api';
 import { RADIUS } from '../../constants/theme';
+import { useKeyboardAware } from './KeyboardAware';
 
 interface Props {
   label?: string;
@@ -26,6 +27,8 @@ const Input = forwardRef<TextInput, Props>(({
   rightIcon, onRightIconPress,
 }, ref) => {
   const [focused, setFocused] = useState(false);
+  // KeyboardAwareScrollView ke andar ho to focus par box keyboard ke upar aa jaata hai
+  const keyboardAware = useKeyboardAware();
   // Internal ref so the wrapper Pressable can focus the field on tap.
   const innerRef = useRef<TextInput>(null);
   useImperativeHandle(ref, () => innerRef.current as TextInput);
@@ -59,7 +62,7 @@ const Input = forwardRef<TextInput, Props>(({
           numberOfLines={numberOfLines}
           editable={editable}
           autoFocus={autoFocus}
-          onFocus={() => setFocused(true)}
+          onFocus={() => { setFocused(true); keyboardAware?.revealFocused(); }}
           onBlur={() => setFocused(false)}
         />
         {rightIcon && onRightIconPress ? (

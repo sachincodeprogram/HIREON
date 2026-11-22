@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   ActivityIndicator, Vibration, Alert, Keyboard,
@@ -7,6 +7,7 @@ import { GooglePlacesAutocomplete, GooglePlacesAutocompleteRef } from 'react-nat
 import { COLORS, GOOGLE_MAPS_API_KEY } from '../../constants/api';
 import { getCurrentLocation, forwardGeocode, getQuickPosition } from '../../services/locationService';
 import MapPinConfirm from './MapPinConfirm';
+import { useKeyboardAware } from './KeyboardAware';
 import { useTranslation } from '../../i18n';
 import { Coordinates } from '../../types';
 
@@ -24,6 +25,11 @@ interface Props {
   /** User ne text change kiya (selection ke baad bhi) — parent ko purane
    *  coords invalidate karne ke liye. setAddressText se trigger NAHI hota. */
   onTextChange?: (text: string) => void;
+  /** Bahar se address bharna (swap ↑↓ / "Order again"). Sirf `valueKey` badalne par lagta
+   *  hai — taaki user ke type karte waqt parent ka state input ko overwrite na kare.
+   *  null = box khaali karo. */
+  value?: { address: string; coords: Coordinates } | null;
+  valueKey?: number;
 }
 
 // Address chunne ke teeno raste (suggestion / GPS / khud ka typed address)
@@ -58,8 +64,12 @@ const AddressSearchInput: React.FC<Props> = ({
   biasCoords,
   onSelect,
   onTextChange,
+  value,
+  valueKey,
 }) => {
   const ref = useRef<GooglePlacesAutocompleteRef>(null);
+  // Focus par box ko itna upar lao ki neeche suggestions (≈4 rows) bhi keyboard ke upar dikhein
+  const keyboardAware = useKeyboardAware();
   const { t } = useTranslation();
   const [locLoading, setLocLoading] = useState(false);
   const [geoLoading, setGeoLoading] = useState(false);
@@ -67,6 +77,22 @@ const AddressSearchInput: React.FC<Props> = ({
   const [confirmed,  setConfirmed]  = useState<{ address: string; coords: Coordinates } | null>(null);
   const [mapVisible, setMapVisible] = useState(false);
   const [mapInit,    setMapInit]    = useState<{ coords: Coordinates; address: string } | null>(null);
+
+  // Parent ne naya address diya (swap / order again) — wahi confirmed location maano
+  useEffect(() => {
+    if (valueKey === undefined) return;
+    if (value) {
+      setConfirmed({ address: value.address, coords: value.coords });
+      setTypedText(value.address);
+      ref.current?.setAddressText(value.address);
+    } else {
+      setConfirmed(null);
+      setTypedText('');
+      ref.current?.setAddressText('');
+    }
+    // value jaan-boojh kar deps me nahi — sirf valueKey badalne par lagao
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [valueKey]);
 
   const openMapAt = (coords: Coordinates, address: string) => {
     Keyboard.dismiss();
@@ -191,6 +217,7 @@ const AddressSearchInput: React.FC<Props> = ({
             placeholderTextColor: COLORS.textLight,
             autoCorrect: false,
             onChangeText: handleTypedChange,
+            onFocus: () => keyboardAware?.revealFocused(230),
           }}
           debounce={300}
           minLength={3}

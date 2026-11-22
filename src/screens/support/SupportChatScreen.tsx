@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, ActivityIndicator,
-  KeyboardAvoidingView, Alert,
+  Alert,
 } from 'react-native';
+import { KeyboardSafeView } from '../../components/common/KeyboardAware';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { RouteProp, useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS } from '../../constants/api';
@@ -238,13 +239,16 @@ const SupportChatScreen = () => {
 
       {/* Android edge-to-edge par adjustResize kaam nahi karta — padding dono
           platform par; KAV sirf asli overlap jitna hi padding deta hai. */}
-      <KeyboardAvoidingView style={styles.flex} behavior="padding">
+      {/* Message box keyboard ke upar uthta hai (Android 15+ edge-to-edge par bhi) */}
+      <KeyboardSafeView style={styles.flex}>
         <ScrollView
           ref={scrollRef}
           style={styles.flex}
           contentContainerStyle={styles.thread}
           keyboardShouldPersistTaps="handled"
-          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}>
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          // Keyboard khulne par list chhoti hoti hai — aakhri message dikhta rahe
+          onLayout={() => scrollRef.current?.scrollToEnd({ animated: false })}>
           {ticket?.orderCode ? (
             <View style={styles.contextChip}>
               <Text style={styles.contextText}>{t('support.order')} #{ticket.orderCode}</Text>
@@ -295,7 +299,7 @@ const SupportChatScreen = () => {
             </TouchableOpacity>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardSafeView>
     </SafeAreaView>
   );
 };

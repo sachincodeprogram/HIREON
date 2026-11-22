@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, ScrollView, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, StatusBar } from 'react-native';
+import { KeyboardAwareScrollView, useKeyboard } from '../../components/common/KeyboardAware';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -35,6 +36,7 @@ const ROLES: { value: UserRole; label: TranslationKey; icon: string; desc: Trans
 const RoleSelectScreen: React.FC<Props> = ({ route }) => {
   const dispatch = useAppDispatch();
   const { t }    = useTranslation();
+  const keyboard = useKeyboard();
   const { name, phone, referralCode, referralChannel } = route.params;
   const [selected,      setSelected]      = useState<UserRole | null>(null);
   const [vehicleType,   setVehicleType]   = useState('');
@@ -63,18 +65,18 @@ const RoleSelectScreen: React.FC<Props> = ({ route }) => {
 
       <View style={styles.header}>
         <SafeAreaView edges={['top']}>
-          <View style={styles.headerContent}>
-            <Text style={styles.hi}>{t('role.hi', { name: name.split(' ')[0] })}</Text>
+          <View style={[styles.headerContent, keyboard.visible && styles.headerContentCompact]}>
+            {!keyboard.visible && <Text style={styles.hi}>{t('role.hi', { name: name.split(' ')[0] })}</Text>}
             <Text style={styles.headerTitle}>{t('role.howUse')}</Text>
-            <Text style={styles.headerSub}>{t('role.changeLater')}</Text>
+            {!keyboard.visible && <Text style={styles.headerSub}>{t('role.changeLater')}</Text>}
           </View>
         </SafeAreaView>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.sheet}
         contentContainerStyle={styles.sheetContent}
-        keyboardShouldPersistTaps="handled"
+        extraOffset={80}
         showsVerticalScrollIndicator={false}>
 
         {ROLES.map(r => (
@@ -139,7 +141,7 @@ const RoleSelectScreen: React.FC<Props> = ({ route }) => {
           {t('role.terms')}
         </Text>
 
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </View>
   );
 };
@@ -151,6 +153,7 @@ const styles = StyleSheet.create({
   headerContent: {
     paddingTop: 20, paddingBottom: 36, paddingHorizontal: 28,
   },
+  headerContentCompact: { paddingTop: 10, paddingBottom: 16 },
   hi:          { fontSize: 15, color: 'rgba(255,255,255,0.7)', marginBottom: 4 },
   headerTitle: { fontSize: 26, fontWeight: '900', color: '#fff', marginBottom: 6 },
   headerSub:   { fontSize: 13, color: 'rgba(255,255,255,0.6)' },

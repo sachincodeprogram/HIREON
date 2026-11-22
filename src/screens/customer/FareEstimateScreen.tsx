@@ -34,6 +34,7 @@ const serverBreakdown = (b: FareBreakdown, t: Translate): BreakdownRow[] => {
       case 'weight':  return { label: t('fare.weightSurcharge'), value: rupees(l.amount) };
       case 'size':    return { label: t('fare.sizeSurcharge'), value: rupees(l.amount) };
       case 'fragile': return { label: t('fare.fragileCharge'), value: rupees(l.amount) };
+      case 'stops':   return { label: t('fare.extraStops', { n: l.count ?? 1 }), value: rupees(l.amount) };
       default: {
         const dist = formatDistance(l.km ?? b.distanceKm);
         const oneSlab = !l.fromKm && (l.toKm === null || l.toKm === undefined);
@@ -64,6 +65,7 @@ const FareEstimateScreen = () => {
   const dispatch   = useAppDispatch();
   const profile    = useAppSelector(s => s.auth.profile);
   const { pickup, delivery, parcel, estimate, paymentMethod } = route.params;
+  const stops = route.params.stops ?? [];
   const isOnlinePayment = paymentMethod === 'ONLINE';
 
   const mapRef = useRef<MapView>(null);
@@ -78,17 +80,23 @@ const FareEstimateScreen = () => {
 
   const pickupLatLng   = { latitude: pickup.coordinates.lat,   longitude: pickup.coordinates.lng };
   const deliveryLatLng = { latitude: delivery.coordinates.lat, longitude: delivery.coordinates.lng };
+  const stopLatLngs    = stops.map(s => ({ latitude: s.coordinates.lat, longitude: s.coordinates.lng }));
+  const allLatLngs     = [pickupLatLng, ...stopLatLngs, deliveryLatLng];
 
-  // Road route pickup → delivery via OSRM (Google Directions is disabled on the
-  // key). Draws a blue Polyline + distance/ETA chips; straight-line fallback.
+  // Road route pickup → (stops) → delivery via OSRM (Google Directions is disabled on the
+  // key). Har leg alag fetch karke jodte hain; koi leg fail ho to us leg ki seedhi line.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const r = await fetchRoute(pickup.coordinates, delivery.coordinates);
+      const pts = [pickup.coordinates, ...stops.map(s => s.coordinates), delivery.coordinates];
+      const legs = await Promise.all(pts.slice(1).map((p, i) => fetchRoute(pts[i], p)));
       if (cancelled) return;
-      const coords = r?.coords?.length ? r.coords : [pickupLatLng, deliveryLatLng];
+      const coords = legs.flatMap((r, i) => (r?.coords?.length ? r.coords : [allLatLngs[i], allLatLngs[i + 1]]));
       setRouteCoords(coords);
-      if (r) { setRouteDistance(r.distance / 1000); setRouteDuration(r.duration / 60); }
+      if (legs.every(Boolean)) {
+        setRouteDistance(legs.reduce((s, r) => s + (r?.distance ?? 0), 0) / 1000);
+        setRouteDuration(legs.reduce((s, r) => s + (r?.duration ?? 0), 0) / 60);
+      }
       mapRef.current?.fitToCoordinates(coords, {
         edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
         animated: true,
@@ -134,7 +142,7 @@ const FareEstimateScreen = () => {
 
     try {
       setLoading(true);
-      const order = await createOrder({ pickup, delivery, parcel, paymentMethod });
+      const order = await createOrder({ pickup, delivery, stops, parcel, paymentMethod });
       dispatch(prependOrder(order));
 
       if (isOnlinePayment) {
@@ -185,7 +193,7 @@ const FareEstimateScreen = () => {
               longitudeDelta: Math.abs(pickup.coordinates.lng - delivery.coordinates.lng) * 2 + 0.05,
             }}
             onMapReady={() => {
-              mapRef.current?.fitToCoordinates([pickupLatLng, deliveryLatLng], {
+              mapRef.current?.fitToCoordinates(allLatLngs, {
                 edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
                 animated: true,
               });
@@ -204,6 +212,11 @@ const FareEstimateScreen = () => {
 
             {/* Pickup Marker */}
             <Marker coordinate={pickupLatLng} title={t('map.pickup')} pinColor="green" />
+
+            {/* Beech ke stops */}
+            {stopLatLngs.map((c, i) => (
+              <Marker key={'stop-' + i} coordinate={c} title={t('map.stopN', { n: i + 1 })} pinColor="orange" />
+            ))}
 
             {/* Delivery Marker */}
             <Marker coordinate={deliveryLatLng} title={t('map.delivery')} pinColor={COLORS.primary} />
@@ -257,10 +270,22 @@ const FareEstimateScreen = () => {
               </View>
             </View>
             <View style={styles.routeConnector} />
+            {stops.map((s, i) => (
+              <React.Fragment key={'stop-' + i}>
+                <View style={styles.routeRow}>
+                  <View style={[styles.routeDot, { backgroundColor: COLORS.warning }]} />
+                  <View style={styles.routeInfo}>
+                    <Text style={styles.routeLabel}>{t('map.stopN', { n: i + 1 })}</Text>
+                    <Text style={styles.routeAddr}>{truncateAddress(s.address, 60)}</Text>
+                  </View>
+                </View>
+                <View style={styles.routeConnector} />
+              </React.Fragment>
+            ))}
             <View style={styles.routeRow}>
               <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
               <View style={styles.routeInfo}>
-                <Text style={styles.routeLabel}>{t('map.delivery')}</Text>
+                <Text style={styles.routeLabel}>{stops.length ? t('book.finalDrop') : t('map.delivery')}</Text>
                 <Text style={styles.routeAddr}>{truncateAddress(delivery.address, 60)}</Text>
               </View>
             </View>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { KeyboardAwareScrollView } from '../../components/common/KeyboardAware';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -146,7 +147,7 @@ const RiderProfileScreen = () => {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <KeyboardAwareScrollView extraOffset={80} showsVerticalScrollIndicator={false}>
 
         {/* Hero */}
         <View style={styles.hero}>
@@ -310,7 +311,7 @@ const RiderProfileScreen = () => {
         </View>
 
         <View style={{ height: 32 }} />
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 };

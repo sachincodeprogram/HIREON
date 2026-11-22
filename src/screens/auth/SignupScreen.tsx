@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, Alert,
-  KeyboardAvoidingView, Platform, StatusBar, TouchableOpacity,
+  View, Text, StyleSheet, Alert,
+  Platform, StatusBar, TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import { COLORS } from '../../constants/api';
 import Input  from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { useTranslation } from '../../i18n';
+import { KeyboardAwareScrollView, useKeyboard } from '../../components/common/KeyboardAware';
 import { ReferralChannel } from '../../types';
 import { getInstallReferralCode, normalizeReferralCode, validateReferralCode } from '../../services/referralService';
 
@@ -27,6 +28,7 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
   // ek plain text field dete hain taaki OTP ke bina number add kar sake.
   const { phone: verifiedPhone } = route.params;
   const { t } = useTranslation();
+  const keyboard = useKeyboard();
   const isGoogleFlow = !verifiedPhone;
   const [name,       setName]       = useState('');
   const [phoneInput, setPhoneInput] = useState('');
@@ -118,20 +120,22 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
 
       <View style={styles.header}>
         <SafeAreaView edges={['top']}>
-          <View style={styles.headerContent}>
-            <View style={styles.iconCircle}>
-              <Text style={styles.waveEmoji}>👋</Text>
-            </View>
+          <View style={[styles.headerContent, keyboard.visible && styles.headerContentCompact]}>
+            {!keyboard.visible && (
+              <View style={styles.iconCircle}>
+                <Text style={styles.waveEmoji}>👋</Text>
+              </View>
+            )}
             <Text style={styles.headerTitle}>{t('signup.almostThere')}</Text>
-            <Text style={styles.headerSub}>{t('signup.oneStep')}</Text>
+            {!keyboard.visible && <Text style={styles.headerSub}>{t('signup.oneStep')}</Text>}
           </View>
         </SafeAreaView>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sheetWrap}>
-        <ScrollView
+      <View style={styles.sheetWrap}>
+        <KeyboardAwareScrollView
+          extraOffset={32}
           contentContainerStyle={styles.sheet}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
 
           {isGoogleFlow ? (
@@ -202,8 +206,8 @@ const SignupScreen: React.FC<Props> = ({ navigation, route }) => {
 
           <Button title={t('common.continue')} onPress={handleNext} loading={checkingCode} style={styles.btn} />
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+      </View>
     </View>
   );
 };
@@ -218,6 +222,7 @@ const styles = StyleSheet.create({
     paddingBottom: 36,
     paddingHorizontal: 24,
   },
+  headerContentCompact: { paddingTop: 10, paddingBottom: 16 },
   iconCircle: {
     width: 72, height: 72, borderRadius: 36,
     backgroundColor: 'rgba(255,255,255,0.2)',

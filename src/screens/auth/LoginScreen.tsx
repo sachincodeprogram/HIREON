@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  Alert, KeyboardAvoidingView, Platform, ScrollView, TextInput, StatusBar,
+  Alert, TextInput, StatusBar,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import auth from '@react-native-firebase/auth';
@@ -15,6 +15,7 @@ import { useAppDispatch } from '../../hooks/useAppDispatch';
 import { setProfile } from '../../store/slices/authSlice';
 import { LanguagePill } from '../../components/common/LanguagePicker';
 import { useTranslation } from '../../i18n';
+import { KeyboardAwareScrollView, useKeyboard } from '../../components/common/KeyboardAware';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
@@ -31,6 +32,8 @@ GoogleSignin.configure({
 const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const dispatch = useAppDispatch();
   const { t }    = useTranslation();
+  // Keyboard khule to bada logo header chhota — form ke liye jagah
+  const keyboard = useKeyboard();
 
   const [phone,         setPhone]         = useState('');
   const [sendLoading,   setSendLoading]   = useState(false);
@@ -238,27 +241,32 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
     <View style={styles.root}>
       <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" />
 
-      {/* Brand Header */}
+      {/* Brand Header — keyboard khulne par chhota, taaki heading + box + button teeno dikhein */}
       <View style={styles.header}>
         <SafeAreaView edges={['top']}>
-          <View style={styles.headerContent}>
-            <View style={styles.langPill}>
-              <LanguagePill />
-            </View>
-            <View style={styles.logoBox}>
-              <Text style={styles.logoText}>H</Text>
-            </View>
-            <Text style={styles.appName}>HIREON</Text>
-            <Text style={styles.tagline}>{t('login.tagline')}</Text>
+          <View style={[styles.headerContent, keyboard.visible && styles.headerContentCompact]}>
+            {!keyboard.visible && (
+              <View style={styles.langPill}>
+                <LanguagePill />
+              </View>
+            )}
+            {!keyboard.visible && (
+              <View style={styles.logoBox}>
+                <Text style={styles.logoText}>H</Text>
+              </View>
+            )}
+            <Text style={[styles.appName, keyboard.visible && styles.appNameCompact]}>HIREON</Text>
+            {!keyboard.visible && <Text style={styles.tagline}>{t('login.tagline')}</Text>}
           </View>
         </SafeAreaView>
       </View>
 
       {/* Bottom Sheet */}
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.sheetWrap}>
-        <ScrollView
+      {/* Keyboard khulne par phone/OTP box + uske neeche ka button keyboard ke upar */}
+      <View style={styles.sheetWrap}>
+        <KeyboardAwareScrollView
+          extraOffset={140}
           contentContainerStyle={styles.scroll}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}>
 
           {step === 'phone' && (
@@ -368,8 +376,8 @@ const LoginScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           )}
 
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+      </View>
     </View>
   );
 };
@@ -383,6 +391,8 @@ const styles = StyleSheet.create({
     paddingTop: 24,
     paddingBottom: 36,
   },
+  headerContentCompact: { paddingTop: 10, paddingBottom: 16 },
+  appNameCompact: { fontSize: 20, letterSpacing: 3, marginBottom: 0 },
   langPill: { position: 'absolute', top: 10, right: 16, zIndex: 1 },
   logoBox: {
     width: 72, height: 72, borderRadius: 22,
@@ -404,6 +414,8 @@ const styles = StyleSheet.create({
     padding: 28,
     paddingBottom: 40,
     minHeight: 460,
+    // Neeche tak bhara rahe — warna chhoti screen content ke neeche laal patti dikhti thi
+    flexGrow: 1,
   },
 
   backRow:    { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 4 },

@@ -186,8 +186,16 @@ const LiveTrackingScreen = () => {
             riderAnim.current.timing({ ...next, duration: 1000, useNativeDriver: false } as any).start();
           }
         });
-        socket.on('order_update', (update: Partial<Order> & { status: Order['status'] }) => {
-          if (mounted) setOrder(prev => prev ? { ...prev, ...update } : prev);
+        socket.on('order_update', (update: Partial<Order> & { status: Order['status']; stopsUpdated?: boolean }) => {
+          if (!mounted) return;
+          const { stopsUpdated, ...rest } = update;
+          setOrder(prev => prev ? { ...prev, ...rest } : prev);
+          // Rider ne beech ka stop deliver kiya — OTP socket par nahi aate, order dobara laao
+          if (stopsUpdated) {
+            getOrderById(orderId)
+              .then(o => { if (mounted) { setOrder(o); dispatch(setActiveOrder(o)); } })
+              .catch(() => {});
+          }
         });
         // 4:30 tak koi rider na mile to backend yeh bhejta hai.
         socket.on('order_no_rider', () => { if (mounted) setNoRider(true); });
@@ -209,7 +217,7 @@ const LiveTrackingScreen = () => {
   const hasRiderFix = !!riderPos;
   useEffect(() => {
     if (!order || riderPos) return;
-    const pts = [order.pickup.coordinates, order.delivery.coordinates]
+    const pts = [order.pickup.coordinates, ...(order.stops ?? []).map(s => s.coordinates), order.delivery.coordinates]
       .filter(Boolean)
       .map(c => ({ latitude: c.lat, longitude: c.lng }));
     if (pts.length === 0) return;
@@ -232,7 +240,7 @@ const LiveTrackingScreen = () => {
   useEffect(() => {
     if (!riderPos || !order) return;
     const target = order.status === 'picked_up'
-      ? order.delivery.coordinates
+      ? (order.stops?.find(s => s.status !== 'delivered') ?? order.delivery).coordinates
       : order.pickup.coordinates;
     if (!target) return;
 
@@ -464,6 +472,12 @@ const LiveTrackingScreen = () => {
             <PlacePin color={COLORS.success} icon="📦" />
           </Marker>
         )}
+        {(order?.stops ?? []).map((s, i) => (
+          <Marker key={'stop-' + i} coordinate={{ latitude: s.coordinates.lat, longitude: s.coordinates.lng }}
+            title={t('map.stopN', { n: i + 1 })} anchor={{ x: 0.5, y: 1 }}>
+            <PlacePin color={s.status === 'delivered' ? COLORS.textLight : COLORS.warning} icon={s.status === 'delivered' ? '✓' : String(i + 1)} />
+          </Marker>
+        ))}
         {deliveryLatLng && (
           <Marker coordinate={deliveryLatLng} title={t('map.delivery')} anchor={{ x: 0.5, y: 1 }}>
             <PlacePin color={COLORS.primary} icon="🏁" />
@@ -632,6 +646,17 @@ const LiveTrackingScreen = () => {
                 </Text>
               </View>
               <View style={styles.routeConnector} />
+              {(order.stops ?? []).map((s, i) => (
+                <React.Fragment key={'stop-' + i}>
+                  <View style={styles.routeRow}>
+                    <View style={[styles.routeDot, { backgroundColor: s.status === 'delivered' ? COLORS.textLight : COLORS.warning }]} />
+                    <Text style={[styles.routeText, s.status === 'delivered' && styles.routeTextDone]} numberOfLines={1}>
+                      {t('map.stopN', { n: i + 1 })} · {truncateAddress(s.address)}{s.status === 'delivered' ? ' ✓' : ''}
+                    </Text>
+                  </View>
+                  <View style={styles.routeConnector} />
+                </React.Fragment>
+              ))}
               <View style={styles.routeRow}>
                 <View style={[styles.routeDot, { backgroundColor: COLORS.primary }]} />
                 <Text style={styles.routeText} numberOfLines={1}>
@@ -656,6 +681,20 @@ const LiveTrackingScreen = () => {
                 <Text style={styles.otpHintText}>{t('track.pickupOtpHint')}</Text>
               </View>
             )}
+            {/* Har beech ke stop ka OTP — receiver ko batana hai; deliver hone par ✓ */}
+            {['accepted', 'picked_up'].includes(order.status) && (order.stops ?? []).map((s, i) => (
+              s.status === 'delivered' ? (
+                <View key={'sotp-' + i} style={styles.stopDoneRow}>
+                  <Text style={styles.stopDoneText}>✅ {t('track.stopDone', { n: i + 1 })}</Text>
+                </View>
+              ) : s.otp ? (
+                <View key={'sotp-' + i} style={[styles.otpCard, { backgroundColor: COLORS.warning + '14', borderLeftColor: COLORS.warning }]}>
+                  <Text style={[styles.otpCardLabel, { color: COLORS.warning }]}>🔑 {t('track.stopOtp', { n: i + 1 })}</Text>
+                  <Text style={[styles.otpValue, { color: COLORS.warning }]}>{s.otp}</Text>
+                  <Text style={[styles.otpHintText, { color: COLORS.warning }]}>{t('track.stopOtpHint', { n: i + 1 })}</Text>
+                </View>
+              ) : null
+            ))}
             {order.status === 'picked_up' && order.deliveryOtp && (
               <View style={[styles.otpCard, { backgroundColor: COLORS.secondaryBg, borderLeftColor: COLORS.secondary }]}>
                 <Text style={[styles.otpCardLabel, { color: COLORS.secondary }]}>🔑 {t('track.deliveryOtp')}</Text>
@@ -951,6 +990,9 @@ const styles = StyleSheet.create({
   },
   routeRow:       { flexDirection: 'row', alignItems: 'center', gap: 10 },
   routeDot:       { width: 8, height: 8, borderRadius: 4 },
+  routeTextDone: { color: COLORS.textLight, textDecorationLine: 'line-through' },
+  stopDoneRow: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, backgroundColor: COLORS.success + '12', marginBottom: 8 },
+  stopDoneText: { fontSize: 13, fontWeight: '700', color: COLORS.success },
   routeConnector: { width: 1, height: 14, backgroundColor: COLORS.border, marginLeft: 3.5, marginVertical: 4 },
   routeText:      { flex: 1, fontSize: 13, color: COLORS.text, fontWeight: '500' },
 

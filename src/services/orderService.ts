@@ -4,6 +4,8 @@ import { Order, FareEstimate, LocationInfo, ParcelInfo, PaymentMethod, RazorpayO
 interface CreateOrderPayload {
   pickup: LocationInfo;
   delivery: LocationInfo;
+  /** Beech ke stops (max 3) */
+  stops?: LocationInfo[];
   parcel: ParcelInfo;
   paymentMethod: PaymentMethod;
 }
@@ -11,6 +13,7 @@ interface CreateOrderPayload {
 interface EstimatePayload {
   pickup: { lat: number; lng: number };
   delivery: { lat: number; lng: number };
+  stops?: { lat: number; lng: number }[];
   parcel: ParcelInfo;
 }
 
@@ -71,6 +74,12 @@ export const declineOrder = async (id: string): Promise<void> => {
 
 export const confirmPickup = async (id: string, otp: string): Promise<Order> => {
   const { data } = await apiClient.post(`/orders/${id}/pickup`, { otp });
+  return data.data;
+};
+
+// Beech ka stop (index 0 se) OTP ke saath deliver — stops kram se hi hote hain
+export const deliverStop = async (id: string, index: number, otp: string): Promise<Order> => {
+  const { data } = await apiClient.post(`/orders/${id}/stops/${index}/deliver`, { otp });
   return data.data;
 };
 

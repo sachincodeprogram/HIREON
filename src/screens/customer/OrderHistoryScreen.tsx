@@ -1,9 +1,10 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { CompositeNavigationProp, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { CustomerStackParamList } from '../../navigation/types';
+import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { BookingDraft, CustomerStackParamList, CustomerTabParamList } from '../../navigation/types';
 import { COLORS } from '../../constants/api';
 import { useAppDispatch } from '../../hooks/useAppDispatch';
 import useAppSelector   from '../../hooks/useAppSelector';
@@ -11,7 +12,25 @@ import { setOrders, setOrderLoading } from '../../store/slices/orderSlice';
 import { getMyOrders } from '../../services/orderService';
 import StatusBadge   from '../../components/common/StatusBadge';
 import ScreenHeader  from '../../components/navigation/ScreenHeader';
-import { Order } from '../../types';
+import { LocationInfo, Order } from '../../types';
+
+type Nav = CompositeNavigationProp<
+  BottomTabNavigationProp<CustomerTabParamList, 'History'>,
+  NativeStackNavigationProp<CustomerStackParamList>
+>;
+
+const asLocation = (l: LocationInfo): LocationInfo => ({
+  address: l.address, coordinates: l.coordinates, contactName: l.contactName ?? '', contactPhone: l.contactPhone ?? '',
+});
+
+// Purane order se booking form ka draft — pickup, saare stops + final drop, parcel, payment
+const draftFrom = (o: Order): BookingDraft => ({
+  pickup: asLocation(o.pickup),
+  drops: [...(o.stops ?? []).map(asLocation), asLocation(o.delivery)],
+  parcel: o.parcel,
+  paymentMethod: o.paymentMethod,
+  sourceOrderId: o.orderId,
+});
 import { formatCurrency, formatDateTime, formatDistance, truncateAddress } from '../../utils/formatters';
 import { useTranslation } from '../../i18n';
 
@@ -20,7 +39,10 @@ const OrderHistoryScreen = () => {
   const { t }      = useTranslation();
   const orders     = useAppSelector(s => s.order.orders);
   const loading    = useAppSelector(s => s.order.loading);
-  const navigation = useNavigation<NativeStackNavigationProp<CustomerStackParamList>>();
+  const navigation = useNavigation<Nav>();
+
+  // Delivered/cancelled order — wahi pickup, drops aur parcel Book tab me bhar do
+  const orderAgain = (o: Order) => navigation.navigate('BookParcel', { draft: draftFrom(o), nonce: Date.now() });
 
   const loadOrders = useCallback(async () => {
     dispatch(setOrderLoading(true));
@@ -57,6 +79,15 @@ const OrderHistoryScreen = () => {
             <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(item.pickup.address)}</Text>
           </View>
           <View style={styles.connector} />
+          {item.stops?.length ? (
+            <>
+              <View style={styles.routeRow}>
+                <View style={[styles.dot, { backgroundColor: COLORS.warning }]} />
+                <Text style={styles.stopsText}>{t('orders.stopsCount', { n: item.stops.length })}</Text>
+              </View>
+              <View style={styles.connector} />
+            </>
+          ) : null}
           <View style={styles.routeRow}>
             <View style={[styles.dot, { backgroundColor: COLORS.primary }]} />
             <Text style={styles.routeText} numberOfLines={1}>{truncateAddress(item.delivery.address)}</Text>
@@ -75,6 +106,18 @@ const OrderHistoryScreen = () => {
               : <Text style={styles.trackBtn}>{t('orders.rate')} ⭐</Text>
           )}
         </View>
+
+        {(item.status === 'delivered' || item.status === 'cancelled') && (
+          <TouchableOpacity
+            style={styles.againBtn}
+            onPress={() => orderAgain(item)}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel={t('orders.orderAgain')}>
+            <Text style={styles.againIcon}>🔁</Text>
+            <Text style={styles.againText}>{t('orders.orderAgain')}</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </TouchableOpacity>
   );
@@ -106,6 +149,14 @@ const OrderHistoryScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  stopsText: { fontSize: 12.5, fontWeight: '700', color: COLORS.warning },
+  againBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 12, paddingVertical: 10, borderRadius: 10,
+    borderWidth: 1.5, borderColor: COLORS.primary, backgroundColor: COLORS.primaryBg,
+  },
+  againIcon: { fontSize: 14 },
+  againText: { fontSize: 14, fontWeight: '800', color: COLORS.primary },
   container:  { flex: 1, backgroundColor: COLORS.background },
   pageHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline',

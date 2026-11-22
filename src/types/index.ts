@@ -69,6 +69,14 @@ export interface UserProfile {
   createdAt: string;
 }
 
+// Pickup aur final drop ke beech ka delivery stop (max 3). Rider kram se deliver karta
+// hai — har stop ka apna OTP (sirf customer ko milta hai, rider ko nahi).
+export interface OrderStop extends LocationInfo {
+  status: 'pending' | 'delivered';
+  otp?: string;
+  deliveredAt?: string;
+}
+
 export interface Order {
   _id: string;
   orderId: string;
@@ -76,6 +84,8 @@ export interface Order {
   rider: UserProfile | string | null;
   pickup: LocationInfo;
   delivery: LocationInfo;
+  /** Beech ke stops — purane orders me nahi hota */
+  stops?: OrderStop[];
   parcel: ParcelInfo;
   fare: FareInfo;
   status: OrderStatus;
@@ -99,7 +109,8 @@ export interface Order {
 
 // Backend (admin panel ke rate) se aane wala fare line-item
 export interface FareLine {
-  key: 'base' | 'distance' | 'weight' | 'size' | 'fragile';
+  key: 'base' | 'distance' | 'weight' | 'size' | 'fragile' | 'stops';
+  count?: number;
   label: string;
   detail?: string;
   amount: number;
