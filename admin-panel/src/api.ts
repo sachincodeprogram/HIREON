@@ -30,6 +30,8 @@ export interface Order {
   rider: Person | null
   pickup: Location
   delivery: Location
+  /** Beech ke stops (pickup aur final drop ke beech) — rider kram se deliver karta hai */
+  stops?: (Location & { status?: 'pending' | 'delivered'; deliveredAt?: string; otp?: string })[]
   parcel?: { description?: string; weight?: number; size?: string; isFragile?: boolean }
   fare: { estimated: number; final: number; distance: number }
   status: OrderStatus
@@ -170,6 +172,8 @@ export interface PricingConfig {
   weightLimitKg: number
   weightRate: number
   fragileCharge: number
+  /** Har extra (beech ke) stop par */
+  stopCharge: number
   sizeCharges: { small: number; medium: number; large: number }
   nightEnabled: boolean
   nightMultiplier: number
@@ -185,7 +189,7 @@ export interface PricingChange { _id: string; version: number; previous: Pricing
 
 export interface PricingAdmin { pricing: Pricing; defaults: PricingConfig; history: PricingChange[] }
 
-export interface FareLine { key: 'base' | 'distance' | 'weight' | 'size' | 'fragile'; label: string; detail?: string; amount: number; fromKm?: number; toKm?: number | null; km?: number; rate?: number }
+export interface FareLine { key: 'base' | 'distance' | 'weight' | 'size' | 'fragile' | 'stops'; label: string; detail?: string; amount: number; fromKm?: number; toKm?: number | null; km?: number; rate?: number }
 
 export interface FareBreakdown {
   distanceKm: number

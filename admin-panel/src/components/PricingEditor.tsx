@@ -13,7 +13,7 @@ import { describeChanges, FareLines, hourLabel, pctLabel, SplitLines } from './f
 interface SlabForm { upToKm: string; perKmRate: string }
 interface Form {
   commissionPercent: string; baseFare: string; minDistanceKm: string; slabs: SlabForm[]
-  weightLimitKg: string; weightRate: string; fragileCharge: string; small: string; medium: string; large: string
+  weightLimitKg: string; weightRate: string; fragileCharge: string; stopCharge: string; small: string; medium: string; large: string
   nightEnabled: boolean; nightMultiplier: string; nightStartHour: number; nightEndHour: number
 }
 
@@ -23,7 +23,7 @@ const n = (v: string) => (v.trim() === '' ? NaN : Number(v))
 const toForm = (c: PricingConfig): Form => ({
   commissionPercent: s(c.commissionPercent), baseFare: s(c.baseFare), minDistanceKm: s(c.minDistanceKm),
   slabs: c.slabs.map(x => ({ upToKm: x.upToKm === null ? '' : s(x.upToKm), perKmRate: s(x.perKmRate) })),
-  weightLimitKg: s(c.weightLimitKg), weightRate: s(c.weightRate), fragileCharge: s(c.fragileCharge),
+  weightLimitKg: s(c.weightLimitKg), weightRate: s(c.weightRate), fragileCharge: s(c.fragileCharge), stopCharge: s(c.stopCharge ?? 0),
   small: s(c.sizeCharges.small), medium: s(c.sizeCharges.medium), large: s(c.sizeCharges.large),
   nightEnabled: c.nightEnabled, nightMultiplier: s(c.nightMultiplier), nightStartHour: c.nightStartHour, nightEndHour: c.nightEndHour,
 })
@@ -31,7 +31,7 @@ const toForm = (c: PricingConfig): Form => ({
 const toConfig = (f: Form): PricingConfig => ({
   commissionPercent: n(f.commissionPercent), baseFare: n(f.baseFare), minDistanceKm: n(f.minDistanceKm),
   slabs: f.slabs.map((x, i) => ({ upToKm: i === f.slabs.length - 1 ? null : n(x.upToKm), perKmRate: n(x.perKmRate) })),
-  weightLimitKg: n(f.weightLimitKg), weightRate: n(f.weightRate), fragileCharge: n(f.fragileCharge),
+  weightLimitKg: n(f.weightLimitKg), weightRate: n(f.weightRate), fragileCharge: n(f.fragileCharge), stopCharge: n(f.stopCharge),
   sizeCharges: { small: n(f.small), medium: n(f.medium), large: n(f.large) },
   nightEnabled: f.nightEnabled, nightMultiplier: n(f.nightMultiplier), nightStartHour: f.nightStartHour, nightEndHour: f.nightEndHour,
 })
@@ -173,7 +173,7 @@ export default function PricingEditor({ data, seed, onSaved }: {
               <button className="btn btn-sm" onClick={addSlab} disabled={form.slabs.length >= 10}><IconPlus /> Add slab</button>
               <button className="btn btn-sm btn-ghost" onClick={applyStandardSlabs}>Use 5 / 50 / 100 km slabs</button>
             </div>
-            <p className="pf-note">Example: with 0–5 km at ₹12 and 5–50 km at ₹10, a 20 km trip is charged 5 km × ₹12 + 15 km × ₹10. Distance is measured in a straight line between pickup and drop.</p>
+            <p className="pf-note">Example: with 0–5 km at ₹12 and 5–50 km at ₹10, a 20 km trip is charged 5 km × ₹12 + 15 km × ₹10. Distance is measured in a straight line along the route — pickup → each stop → final drop.</p>
           </Card>
 
           <Card title="Parcel charges" subtitle="Extra charges based on what is being sent">
@@ -186,6 +186,10 @@ export default function PricingEditor({ data, seed, onSaved }: {
               <NumField label="Small parcel" value={form.small} onChange={set('small')} prefix="₹" />
               <NumField label="Medium parcel" value={form.medium} onChange={set('medium')} prefix="₹" />
               <NumField label="Large parcel" value={form.large} onChange={set('large')} prefix="₹" />
+            </div>
+            <div className="pf-row pf-row-3">
+              <NumField label="Each extra stop" value={form.stopCharge} onChange={set('stopCharge')} prefix="₹"
+                hint="Per drop point added between pickup and the final drop (max 3)" />
             </div>
           </Card>
 

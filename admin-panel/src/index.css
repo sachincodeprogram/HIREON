@@ -560,6 +560,7 @@ kbd {
 .route-dot svg { width: 15px; height: 15px; }
 .route-dot.pickup { background: var(--good-soft); color: var(--good); }
 .route-dot.drop { background: var(--bad-soft); color: var(--bad); }
+.route-dot.stop { background: var(--warn-soft); color: var(--warn); }
 
 .people { display: flex; flex-direction: column; gap: 8px; }
 .person { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; width: 100%; text-align: left; background: var(--surface); }

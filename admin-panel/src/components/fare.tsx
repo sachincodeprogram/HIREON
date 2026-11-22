@@ -31,6 +31,7 @@ export function describeChanges(a: PricingConfig | null, b: PricingConfig): { la
   add('Free weight', a.weightLimitKg + ' kg', b.weightLimitKg + ' kg')
   add('Extra weight', '₹' + a.weightRate + '/kg', '₹' + b.weightRate + '/kg')
   add('Fragile', '₹' + a.fragileCharge, '₹' + b.fragileCharge)
+  add('Extra stop', '₹' + (a.stopCharge ?? 0), '₹' + (b.stopCharge ?? 0))
   for (const s of ['small', 'medium', 'large'] as const) add(s[0]!.toUpperCase() + s.slice(1) + ' parcel', '₹' + a.sizeCharges[s], '₹' + b.sizeCharges[s])
   const night = (c: PricingConfig) => (c.nightEnabled ? `×${c.nightMultiplier}, ${hourLabel(c.nightStartHour)}–${hourLabel(c.nightEndHour)}` : 'Off')
   add('Night surcharge', night(a), night(b))

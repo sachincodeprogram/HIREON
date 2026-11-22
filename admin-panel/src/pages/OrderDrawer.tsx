@@ -95,10 +95,20 @@ export default function OrderDrawer({ order, onClose }: { order: Order | null; o
               {(o.pickup?.contactName || o.pickup?.contactPhone) && <div className="muted small">{o.pickup.contactName} · {o.pickup.contactPhone}</div>}
             </div>
           </div>
+          {(o.stops ?? []).map((s, i) => (
+            <div className="route-stop" key={i}>
+              <span className="route-dot stop"><IconPin /></span>
+              <div>
+                <div className="muted small">Stop {i + 1} {s.status === 'delivered' ? <Pill tone="good">Delivered</Pill> : <Pill>Pending</Pill>}</div>
+                <div>{s.address}</div>
+                {(s.contactName || s.contactPhone) && <div className="muted small">{s.contactName} · {s.contactPhone}</div>}
+              </div>
+            </div>
+          ))}
           <div className="route-stop">
             <span className="route-dot drop"><IconPin /></span>
             <div>
-              <div className="muted small">Drop</div>
+              <div className="muted small">{o.stops?.length ? 'Final drop' : 'Drop'}</div>
               <div>{o.delivery?.address}</div>
               {(o.delivery?.contactName || o.delivery?.contactPhone) && <div className="muted small">{o.delivery.contactName} · {o.delivery.contactPhone}</div>}
             </div>
