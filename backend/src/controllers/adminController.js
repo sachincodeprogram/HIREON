@@ -6,6 +6,7 @@ const WalletTransaction = require('../models/WalletTransaction');
 const { success, error } = require('../utils/apiResponse');
 const { getActivitySince } = require('../utils/activityLog');
 const { settleDelivery } = require('../utils/deliverOrder');
+const { istStarts } = require('../utils/istTime');
 
 // GET /api/v1/admin/stats
 const getStats = async (req, res) => {
@@ -17,7 +18,9 @@ const getStats = async (req, res) => {
       Order.countDocuments(),
       Order.countDocuments({ status: { $in: ['pending', 'accepted', 'picked_up', 'in_transit'] } }),
       Order.aggregate([
-        { $match: { status: 'delivered', updatedAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
+        // deliveredAt (updatedAt nahi — kal delivered order ko aaj rating mile to woh aaj
+        // ki kamai me gin jaata tha), aur din IST ke hisaab se (server UTC me hai)
+        { $match: { status: 'delivered', deliveredAt: { $gte: istStarts().today } } },
         { $group: { _id: null, total: { $sum: '$fare.final' } } },
       ]),
     ]);

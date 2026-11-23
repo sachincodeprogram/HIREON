@@ -40,13 +40,18 @@ const razorpayWebhook = async (req, res) => {
       }
 
       if (notes.purpose === 'ORDER_PAYMENT' && notes.orderId) {
-        const order = await Order.findById(notes.orderId);
-        if (order && order.paymentStatus !== 'paid') {
-          order.paymentStatus = 'paid';
-          order.razorpayPaymentId = payment.id;
-          order.timeline.push({ status: order.status, note: 'Payment received (webhook)' });
-          await order.save();
-
+        // Atomic — app ka pay/verify aur webhook ek saath aayein to dispatch sirf ek baar.
+        // Cancelled order ka payment aaye to bhi riders ko ring nahi (sirf pending).
+        const current = await Order.findById(notes.orderId).select('status').lean();
+        const order = current && await Order.findOneAndUpdate(
+          { _id: notes.orderId, paymentStatus: { $ne: 'paid' } },
+          {
+            $set:  { paymentStatus: 'paid', razorpayPaymentId: payment.id },
+            $push: { timeline: { status: current.status, note: 'Payment received (webhook)' } },
+          },
+          { returnDocument: 'after' }
+        );
+        if (order && order.status === 'pending') {
           dispatchOrder(req.io, req.onlineRiders, {
             orderId: order._id,
             pickup:  order.pickup.coordinates,

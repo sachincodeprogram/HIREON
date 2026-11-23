@@ -3,6 +3,7 @@ const RiderLocation = require('../models/RiderLocation');
 const Order         = require('../models/Order');
 const { success, error } = require('../utils/apiResponse');
 const { logActivity }    = require('../utils/activityLog');
+const { istStarts }      = require('../utils/istTime');
 
 // PUT /api/v1/rider/status
 const setOnlineStatus = async (req, res) => {
@@ -61,10 +62,8 @@ const getEarnings = async (req, res) => {
   try {
     const rider = await User.findById(req.user._id).select('totalEarnings totalDeliveries rating ratingCount');
 
-    const now    = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const weekStart  = new Date(todayStart); weekStart.setDate(todayStart.getDate() - todayStart.getDay());
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // IST ke hisaab se (server UTC me hai)
+    const { today: todayStart, week: weekStart, month: monthStart } = istStarts();
 
     const [todayOrders, weekOrders, monthOrders] = await Promise.all([
       Order.find({ rider: req.user._id, status: 'delivered', deliveredAt: { $gte: todayStart } }),

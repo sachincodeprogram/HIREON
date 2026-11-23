@@ -1,4 +1,5 @@
 const crypto         = require('crypto');
+const mongoose       = require('mongoose');
 const Order          = require('../models/Order');
 const User           = require('../models/User');
 const RiderLocation  = require('../models/RiderLocation');
@@ -10,6 +11,7 @@ const { getOrCreateWallet } = require('../utils/wallet');
 const { walletMinBalancePaise } = require('../utils/commission');
 const { getRazorpay } = require('../utils/razorpay');
 const { settleDelivery } = require('../utils/deliverOrder');
+const { istStarts } = require('../utils/istTime');
 
 const genOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -183,20 +185,24 @@ const verifyOrderPayment = async (req, res) => {
       .digest('hex');
     if (expected !== razorpay_signature) return res.status(400).json(error('Signature verification failed'));
 
-    if (order.paymentStatus !== 'paid') {
-      order.paymentStatus = 'paid';
-      order.razorpayPaymentId = razorpay_payment_id;
-      order.timeline.push({ status: order.status, note: 'Payment received' });
-      await order.save();
-
+    // Atomic — webhook aur yeh call ek saath aayein to dispatch sirf ek baar
+    const paid = await Order.findOneAndUpdate(
+      { _id: order._id, paymentStatus: { $ne: 'paid' } },
+      {
+        $set:  { paymentStatus: 'paid', razorpayPaymentId: razorpay_payment_id },
+        $push: { timeline: { status: order.status, note: 'Payment received' } },
+      },
+      { returnDocument: 'after' }
+    );
+    if (paid && paid.status === 'pending') {
       dispatchOrder(req.io, req.onlineRiders, {
-        orderId: order._id,
-        pickup:  order.pickup.coordinates,
-        payload: buildOrderPayload(order),
+        orderId: paid._id,
+        pickup:  paid.pickup.coordinates,
+        payload: buildOrderPayload(paid),
       });
     }
 
-    res.json(success('Payment verified', order));
+    res.json(success('Payment verified', paid || await Order.findById(order._id)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -217,13 +223,33 @@ const getOrders = async (req, res) => {
   }
 };
 
+// Order kaun dekh sakta hai: uska customer, assigned rider, ya (ring ke liye) koi bhi
+// rider jab order abhi pending hai aur kisi ne liya nahi. Pehle koi bhi logged-in user
+// kisi ka bhi order ID se padh leta tha — customer role ko OTP samet poora order milta tha.
+const canView = (order, user) => {
+  const uid = user._id.toString();
+  const ref = v => (v?._id ?? v)?.toString();
+  if (ref(order.customer) === uid || ref(order.rider) === uid) return true;
+  return user.role === 'rider' && order.status === 'pending' && !order.rider;
+};
+
 // GET /api/v1/orders/:id
 const getOrder = async (req, res) => {
   try {
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).json(error('Order not found'));
     const order = await Order.findById(req.params.id)
       .populate('customer', 'name phone avatar')
       .populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
     if (!order) return res.status(404).json(error('Order not found'));
+    if (!canView(order, req.user)) {
+      // Ring notification se aaya rider jiska order kisi aur ne le liya / cancel ho gaya —
+      // app ko sirf status chahiye ("order gone" dikhane aur ring band karne ke liye).
+      // Address, customer, OTP kuch nahi.
+      if (req.user.role === 'rider') {
+        return res.json(success('Order fetched', { _id: order._id, orderId: order.orderId, status: order.status }));
+      }
+      return res.status(404).json(error('Order not found'));
+    }
     res.json(success('Order fetched', forViewer(order, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
@@ -233,8 +259,7 @@ const getOrder = async (req, res) => {
 // GET /api/v1/orders/pending  (rider sees today's open requests only — purane stale orders nahi)
 const getPendingOrders = async (req, res) => {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+    const todayStart = istStarts().today; // IST ka aaj (server UTC me hai)
     // ONLINE order jab tak paid na ho, kisi rider ki list me mat dikhao —
     // warna direct accept se bina-payment ke order le sakta hai.
     const orders = await Order.find({
@@ -255,7 +280,7 @@ const getPendingOrders = async (req, res) => {
 const getNearbyRiders = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).select('pickup customer');
-    if (!order) return res.status(404).json(error('Order not found'));
+    if (!order || order.customer.toString() !== req.user._id.toString()) return res.status(404).json(error('Order not found'));
 
     const pickup = order.pickup?.coordinates;
     const riderIds = Array.from(req.onlineRiders?.keys() || []);
@@ -280,6 +305,10 @@ const redispatchOrder = async (req, res) => {
     if (!order) return res.status(404).json(error('Order not found'));
     if (order.customer.toString() !== req.user._id.toString()) return res.status(403).json(error('Not your order'));
     if (order.status !== 'pending') return res.status(400).json(error('Order is no longer pending'));
+    // ONLINE order bina payment ke riders ko ring nahi hona chahiye (accept waise bhi block hai)
+    if (order.paymentMethod === 'ONLINE' && order.paymentStatus !== 'paid') {
+      return res.status(400).json(error('Complete the payment first'));
+    }
 
     dispatchOrder(req.io, req.onlineRiders, {
       orderId: order._id,
@@ -316,19 +345,27 @@ const acceptOrder = async (req, res) => {
       }
     }
 
-    order.rider  = req.user._id;
-    order.status = 'accepted';
-    order.timeline.push({ status: 'accepted', note: 'Rider accepted the order' });
-    await order.save();
+    // Atomic: sirf tab jab order abhi bhi pending aur bina rider ho. Pehle findById +
+    // save tha — do rider ek saath accept karein to dono ko "accepted" milta aur baad
+    // wala pehle wale ko chupchap hata deta (dono pickup ke liye nikal padte).
+    const claimed = await Order.findOneAndUpdate(
+      { _id: order._id, status: 'pending', rider: null },
+      {
+        $set:  { rider: req.user._id, status: 'accepted' },
+        $push: { timeline: { status: 'accepted', note: 'Rider accepted the order' } },
+      },
+      { returnDocument: 'after' }
+    ).populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
+    if (!claimed) return res.status(400).json(error('Order no longer available'));
     // accept ho gaya — baaki tiers ko ring mat karo, aur jin riders ki ring
     // abhi baj rahi hai unki turant band karo.
     withdrawDispatch(order._id, 'taken', req.user._id);
 
-    await order.populate('rider', 'name phone avatar vehicleType vehicleNumber rating');
+    // OTP room me mat bhejo — rider bhi isi room me hota hai, aur OTP customer se lena hi
+    // handoff ka saboot hai. Customer ke paas order fetch se OTP pehle se hai.
+    req.io?.to(claimed._id.toString()).emit('order_update', { status: 'accepted', rider: claimed.rider });
 
-    req.io?.to(order._id.toString()).emit('order_update', { status: 'accepted', rider: order.rider, pickupOtp: order.pickupOtp });
-
-    res.json(success('Order accepted', order));
+    res.json(success('Order accepted', forViewer(claimed, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -371,13 +408,14 @@ const confirmPickup = async (req, res) => {
     if (!updated) {
       const current = await Order.findById(order._id);
       if (['picked_up', 'in_transit', 'delivered'].includes(current?.status)) {
-        return res.json(success('Pickup already confirmed', current));
+        return res.json(success('Pickup already confirmed', forViewer(current, req.user)));
       }
       return res.status(400).json(error('Order cannot be picked up at this stage'));
     }
 
-    req.io?.to(updated._id.toString()).emit('order_update', { status: 'picked_up', deliveryOtp: updated.deliveryOtp });
-    res.json(success('Pickup confirmed', updated));
+    // deliveryOtp room me nahi (rider bhi room me hai) — customer ke paas pehle se hai
+    req.io?.to(updated._id.toString()).emit('order_update', { status: 'picked_up' });
+    res.json(success('Pickup confirmed', forViewer(updated, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -403,7 +441,7 @@ const confirmDelivery = async (req, res) => {
     const { order } = await settleDelivery({ found, io: req.io });
     if (!order) return res.status(400).json(error('Order cannot be delivered at this stage'));
 
-    res.json(success('Delivery confirmed', order));
+    res.json(success('Delivery confirmed', forViewer(order, req.user)));
   } catch (err) {
     res.status(500).json(error(err.message));
   }
@@ -460,6 +498,12 @@ const updateDeliveryAddress = async (req, res) => {
     if (!['pending', 'accepted', 'picked_up', 'in_transit'].includes(order.status)) {
       return res.status(400).json(error('Delivery address can no longer be changed'));
     }
+    // ONLINE paid order: customer purana fare de chuka — naya fare lagta to rider ko us
+    // paise ka credit milta jo kabhi aaya hi nahi (ya customer ka paisa kam pad jaata).
+    if (order.paymentMethod === 'ONLINE' && order.paymentStatus === 'paid') {
+      return res.status(400).json(error('This order is already paid online, so the address cannot be changed. Please contact support.'));
+    }
+    if (!isCoord(coordinates)) return res.status(400).json(error('Invalid coordinates'));
 
     const oldFare = order.fare.estimated;
     order.delivery.address     = address;
