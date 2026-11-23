@@ -39,7 +39,7 @@ const LiveRiderMarker = () => {
     );
     loop.start();
     return () => loop.stop();
-  }, []);
+  }, [pulse]);
   const scale   = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 2.8] });
   const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0] });
   return (
@@ -69,7 +69,7 @@ const SearchWaveBar = ({ progress }: { progress: Animated.Value }) => {
     );
     loop.start();
     return () => loop.stop();
-  }, [trackW]);
+  }, [trackW, wave]);
 
   const fillWidth  = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const snakeW     = Math.max(46, trackW * 0.35);
@@ -210,7 +210,7 @@ const LiveTrackingScreen = () => {
       getSocket()?.off('order_update');
       getSocket()?.off('order_no_rider');
     };
-  }, [orderId]);
+  }, [orderId, dispatch]);
 
   // Order load hote hi (rider ki location aane se pehle bhi) map ko
   // pickup + delivery par fit karo — pehle default Delhi par atka rehta tha.
@@ -231,6 +231,8 @@ const LiveTrackingScreen = () => {
       mapRef.current?.fitToCoordinates(pts, { edgePadding: pad, animated: true });
     }, 500);
     return () => clearTimeout(timer);
+  // Poora order/riderPos dep me ho to har location update par map dobara fit hota — sirf in fields par
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?._id, order?.delivery.coordinates.lat, order?.delivery.coordinates.lng, hasRiderFix, tallSheet]);
 
   // Draw the live road route rider → current target (pickup before pickup,
@@ -281,6 +283,8 @@ const LiveTrackingScreen = () => {
     })();
     return () => { cancelled = true; };
     // delivery coords bhi deps me — address edit hote hi route naya target dikhaye
+  // Sirf coordinates/status badalne par route dobara laao, har order object par nahi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riderPos?.lat, riderPos?.lng, order?.status, order?.delivery.coordinates.lat, order?.delivery.coordinates.lng]);
 
   // Pehli baar pending order aaye to search ki shuruaat order ke createdAt se maano.
@@ -288,6 +292,8 @@ const LiveTrackingScreen = () => {
     if (order && order.status === 'pending' && searchStart === 0) {
       setSearchStart(new Date(order.createdAt).getTime());
     }
+  // Search timer sirf status/createdAt badalne par reset ho
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.status, order?.createdAt]);
 
   // Rider search window: ease-out progress bar (shuru fast, end ke paas slow) +
@@ -318,7 +324,7 @@ const LiveTrackingScreen = () => {
     const doneTimer = setTimeout(() => { if (active) setNoRider(true); }, remaining + 3000);
 
     return () => { active = false; anim.stop(); clearInterval(poll); clearTimeout(doneTimer); };
-  }, [searching, searchStart, orderId]);
+  }, [searching, searchStart, orderId, searchProgress]);
 
   // "Order Again" — same order dobara dispatch + fresh 4:30 search.
   const handleOrderAgain = async () => {
@@ -433,7 +439,10 @@ const LiveTrackingScreen = () => {
   // Live delivery progress (stepper) + assigned rider details for the info card.
   const cancelled = order?.status === 'cancelled';
   // Deliver/cancel hone tak hi address edit ho sakta hai.
-  const canEditDelivery = !!order && ['pending', 'accepted', 'picked_up', 'in_transit'].includes(order.status);
+  // ONLINE paid order ka address backend nahi badalne deta (fare pehle hi pay ho chuka) —
+  // Edit button dikha kar pin chunwane ke baad error dene se behtar hai button hi na dikhe.
+  const paidOnline = order?.paymentMethod === 'ONLINE' && order?.paymentStatus === 'paid';
+  const canEditDelivery = !!order && !paidOnline && ['pending', 'accepted', 'picked_up', 'in_transit'].includes(order.status);
   const stepIndex = (() => {
     switch (order?.status) {
       case 'accepted':   return 1;

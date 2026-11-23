@@ -64,7 +64,7 @@ const CustomerDashboard = () => {
       dispatch(setOrders(list));
     } catch { /* silent */ }
     finally { dispatch(setOrderLoading(false)); }
-  }, []);
+  }, [dispatch]);
 
   // Har baar dashboard focus me aaye to fresh list lao — pehle sirf mount par
   // load hota tha, isliye order place/deliver hone ke baad bhi status badge

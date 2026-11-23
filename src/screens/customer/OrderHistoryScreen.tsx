@@ -48,7 +48,7 @@ const OrderHistoryScreen = () => {
     dispatch(setOrderLoading(true));
     try { dispatch(setOrders(await getMyOrders())); } catch { /* silent */ }
     finally { dispatch(setOrderLoading(false)); }
-  }, []);
+  }, [dispatch]);
 
   // Focus par fresh list — tracking/rating se wapas aane par status aur
   // rating turant updated dikhe (pehle sirf mount par load hota tha).

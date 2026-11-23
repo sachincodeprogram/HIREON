@@ -10,7 +10,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import auth from '@react-native-firebase/auth';
 import Navbar from '../../components/common/Navbar';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { RootStackParamList } from '../../navigation/types';
 
 type Props = {
   navigation: NativeStackNavigationProp<any, any>;
@@ -23,7 +22,7 @@ const quickActions = [
   { icon: '📍', label: 'Track', color: '#E3F2FD' },
 ];
 
-const HomeScreen: React.FC<Props> = ({ navigation }) => {
+const HomeScreen: React.FC<Props> = () => {
   const user = auth().currentUser;
   const firstName = user?.displayName?.split(' ')[0] ?? 'User';
 

@@ -17,6 +17,7 @@ import { useAppDispatch } from '../hooks/useAppDispatch';
 import { setProfile, clearAuth } from '../store/slices/authSlice';
 import { getMyProfile } from '../services/authService';
 import { getDevPhone, onAccountBlocked } from '../services/apiClient';
+import { disconnectSocket } from '../services/socketService';
 import type { RootState } from '../store';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -51,7 +52,15 @@ const RootNavigator = () => {
       setInitializing(false);
     });
     return unsub;
-  }, []);
+  }, [dispatch]);
+
+  // Logged-in user badla (logout / doosre account se login) — purana socket band karo.
+  // Pehle logout par socket chalta rehta tha: ek hi phone par customer se logout karke
+  // rider se login karne par app purane customer ke socket par hi rehta — rider ko na
+  // naye order ki ring milti, na uski live location jaati (app restart tak).
+  // Profile edit par _id wahi rehta hai, isliye tab reconnect nahi hota.
+  const profileId = profile?._id;
+  useEffect(() => () => disconnectSocket(), [profileId]);
 
   // App chalte-chalte admin ne block kiya (API 403 / socket reject) — profile dobara
   // lao; isBlocked true aate hi "Account blocked" screen khul jaati hai.

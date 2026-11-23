@@ -195,7 +195,7 @@ const RiderDashboard = () => {
     );
     pulse.start();
     return () => pulse.stop();
-  }, [ringOrder]);
+  }, [ringOrder, ringAnim]);
 
   // Accept window progress bar (ease-out: shuru fast, end slow). Bharne par popup khud band.
   useEffect(() => {
@@ -211,6 +211,8 @@ const RiderDashboard = () => {
       if (finished) { stopRing(); cancelOrderRing(ringOrder._id); setRingOrder(null); }
     });
     return () => anim.stop();
+  // Ring timer sirf naye order (id) par shuru ho, usi order ke object refresh par nahi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringOrder?._id]);
 
   // Fetch road routes for the ring-modal mini map via OSRM (Google Directions is
@@ -240,6 +242,8 @@ const RiderDashboard = () => {
       }
     })();
     return () => { cancelled = true; };
+  // Sirf ring order id aur rider location badalne par
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringOrder?._id, riderPos]);
 
   // App restart/reload ke baad redux `isOnline` false se shuru hota hai jabki
@@ -247,6 +251,8 @@ const RiderDashboard = () => {
   // nahi hota (location stale ho jaati hai) aur socket ring bhi ignore hoti hai.
   useEffect(() => {
     if (profile?.isOnline && !isOnline) dispatch(setOnlineStatus(true));
+  // Sirf online toggle badalne par — dispatch stable hai
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profile?.isOnline]);
 
   // Start GPS when online
@@ -422,6 +428,8 @@ const RiderDashboard = () => {
     });
 
     return () => { unsubToken(); unsubNotifee(); unsubMsg(); appStateSub.remove(); };
+  // Push listeners ek hi baar lagne chahiye; handleAccept har render par naya hai
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ringForOrder]);
 
   // Chalu order load karo — mount par aur jab dashboard wapas focus me aaye (delivery se laut ke).

@@ -225,7 +225,7 @@ const ActiveDeliveryScreen = () => {
       if (orderUpdateHandler) getSocket()?.off('order_update', orderUpdateHandler);
       if (locationWatchId.current !== null) Geolocation.clearWatch(locationWatchId.current);
     };
-  }, [orderId]);
+  }, [orderId, dispatch]);
 
   // Customer ne cancel kar diya (live socket event, reconnect refetch ya screen
   // khulte waqt) — GPS band karo, route hatao, rider ko alert do. Ab is order
@@ -277,6 +277,8 @@ const ActiveDeliveryScreen = () => {
         longitudeDelta: 0.02,
       }, 600);
     }
+  // Route sirf order/drop/status badalne par — poore order object par nahi
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?._id, order?.status, dropLat, dropLng, riderPos]);
 
   // Fetch a road-following route (rider → current target) and draw it as a blue
@@ -328,6 +330,8 @@ const ActiveDeliveryScreen = () => {
     })();
     return () => { cancelled = true; };
     // delivery coords bhi deps me — customer address badle to route turant redraw ho
+  // Sirf rider ke coordinates aur drop badalne par chalo
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [riderPos?.lat, riderPos?.lng, order?.status, dropLat, dropLng]);
 
   const handlePickupConfirm = async () => {

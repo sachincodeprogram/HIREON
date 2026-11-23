@@ -103,6 +103,8 @@ const FareEstimateScreen = () => {
       });
     })();
     return () => { cancelled = true; };
+  // Estimate screen khulte hi ek baar — route params is screen par nahi badalte
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Order create hone ke baad Razorpay checkout kholo. Order khud FareEstimate

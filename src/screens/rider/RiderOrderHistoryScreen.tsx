@@ -22,9 +22,9 @@ const RiderOrderHistoryScreen = () => {
     dispatch(setOrderLoading(true));
     try { dispatch(setOrders(await getMyOrders())); } catch { /* silent */ }
     finally { dispatch(setOrderLoading(false)); }
-  }, []);
+  }, [dispatch]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [load]);
 
   const totalEarned = orders
     .filter(o => o.status === 'delivered')

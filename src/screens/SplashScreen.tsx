@@ -124,6 +124,8 @@ const SplashScreen: React.FC<Props> = ({ onDone }) => {
 
     const timer = setTimeout(onDone, 3000);
     return () => clearTimeout(timer);
+  // Splash sirf ek baar chale — onDone parent ka inline callback hai, har render par naya
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
